@@ -10,11 +10,3 @@ provider "oci" {
   auth                = var.auth
   config_file_profile = contains(["APIKey", "SecurityToken"], var.auth) ? var.config_file_profile : null
 }
-
-# IAM writes use the tenancy home region, which may differ from the OKE region.
-provider "oci" {
-  alias               = "home"
-  region              = var.iam_home_region == "" ? var.region : var.iam_home_region
-  auth                = var.auth
-  config_file_profile = contains(["APIKey", "SecurityToken"], var.auth) ? var.config_file_profile : null
-}

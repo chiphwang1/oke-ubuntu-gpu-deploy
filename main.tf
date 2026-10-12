@@ -51,7 +51,6 @@ data "external" "network_validation" {
   }
 }
 resource "terraform_data" "validate" {
-  depends_on = [terraform_data.validate_iam]
   lifecycle {
     precondition {
       condition     = contains(data.oci_containerengine_cluster_option.available.kubernetes_versions, var.kubernetes_version) && contains(keys(local.node_packages), local.kubernetes_minor)
@@ -117,7 +116,7 @@ resource "oci_containerengine_cluster" "this" {
     }
 
   }
-  depends_on = [terraform_data.validate, oci_identity_policy.deployment]
+  depends_on = [terraform_data.validate]
 }
 resource "oci_containerengine_node_pool" "ubuntu" {
   compartment_id     = var.compartment_ocid

@@ -278,42 +278,6 @@ variable "max_pods_per_node" {
   }
 }
 
-variable "create_iam_policy" {
-  type        = bool
-  default     = false
-  description = "Create a deployment-group policy if missing; a supplied existing_iam_policy_id is reused instead."
-}
-
-variable "existing_iam_policy_id" {
-  type        = string
-  default     = ""
-  description = "Optional existing deployment policy OCID to reference without modifying it."
-}
-
-variable "deployment_group_id" {
-  type        = string
-  default     = ""
-  description = "Existing IAM user-group OCID to grant deployment permissions when creating the policy."
-}
-
-variable "iam_home_region" {
-  type        = string
-  default     = ""
-  description = "Tenancy home region, required for policy creation or explicit existing-policy lookup."
-}
-
-variable "iam_policy_name" {
-  type        = string
-  default     = "oke-ubuntu-gpu-deployment"
-  description = "Name for a new IAM deployment policy; use an existing OCID if this policy already exists."
-}
-
-variable "iam_network_compartment_id" {
-  type        = string
-  default     = ""
-  description = "Compartment of reused networking if different from compartment_ocid; empty uses compartment_ocid."
-}
-
 variable "node_pool_name" {
   type        = string
   default     = ""

@@ -2,7 +2,7 @@
   "title": "Ubuntu GPU certification on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "locale": "en",
   "variableGroups": [
     {
@@ -13,17 +13,6 @@
         "region",
         "auth",
         "config_file_profile"
-      ]
-    },
-    {
-      "title": "Terraform deployment IAM",
-      "variables": [
-        "create_iam_policy",
-        "existing_iam_policy_id",
-        "deployment_group_id",
-        "iam_home_region",
-        "iam_policy_name",
-        "iam_network_compartment_id"
       ]
     },
     {
@@ -520,43 +509,6 @@
           "OCI_VCN_IP_NATIVE"
         ]
       }
-    },
-    "create_iam_policy": {
-      "type": "boolean",
-      "title": "Create missing deployment IAM policy",
-      "description": "Creates a policy for an existing deployment group. Supplying an existing policy OCID reuses it.",
-      "default": false
-    },
-    "existing_iam_policy_id": {
-      "type": "string",
-      "title": "Existing deployment policy OCID",
-      "description": "Optional: reference this policy without modifying it. Leave empty when existing access is already sufficient.",
-      "default": ""
-    },
-    "deployment_group_id": {
-      "type": "string",
-      "title": "Deployment group OCID",
-      "description": "Existing IAM group to grant deployment access; required when creating a policy.",
-      "default": "",
-      "visible": "${create_iam_policy}"
-    },
-    "iam_home_region": {
-      "type": "oci:identity:region:name",
-      "title": "IAM home region",
-      "description": "Required for policy creation or lookup. Select the tenancy home region."
-    },
-    "iam_policy_name": {
-      "type": "string",
-      "title": "New policy name",
-      "default": "oke-ubuntu-gpu-deployment",
-      "visible": "${create_iam_policy}"
-    },
-    "iam_network_compartment_id": {
-      "type": "string",
-      "title": "Reused network compartment OCID",
-      "description": "Optional if reused networking is in a different compartment.",
-      "default": "",
-      "visible": "${create_iam_policy}"
     },
     "node_pool_name": {
       "type": "string",
