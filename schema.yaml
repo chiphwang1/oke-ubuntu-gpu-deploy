@@ -1,0 +1,648 @@
+{
+  "title": "Ubuntu GPU certification on OKE",
+  "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
+  "schemaVersion": "1.1.0",
+  "version": "1.0.0",
+  "locale": "en",
+  "variableGroups": [
+    {
+      "title": "Identity",
+      "variables": [
+        "tenancy_ocid",
+        "compartment_ocid",
+        "region",
+        "auth",
+        "config_file_profile"
+      ]
+    },
+    {
+      "title": "Terraform deployment IAM",
+      "variables": [
+        "create_iam_policy",
+        "existing_iam_policy_id",
+        "deployment_group_id",
+        "iam_home_region",
+        "iam_policy_name",
+        "iam_network_compartment_id"
+      ]
+    },
+    {
+      "title": "Deployment",
+      "variables": [
+        "deployment_mode",
+        "cluster_name",
+        "existing_cluster_id",
+        "existing_vcn_id",
+        "existing_worker_subnet_id",
+        "existing_endpoint_subnet_id",
+        "existing_lb_subnet_id"
+      ]
+    },
+    {
+      "title": "Cluster",
+      "variables": [
+        "kubernetes_version",
+        "public_api_endpoint",
+        "api_access_cidrs"
+      ]
+    },
+    {
+      "title": "Network",
+      "variables": [
+        "vcn_cidr",
+        "pods_cidr",
+        "services_cidr",
+        "ssh_access_cidrs",
+        "cni_type",
+        "max_pods_per_node"
+      ]
+    },
+    {
+      "title": "Workers",
+      "variables": [
+        "node_pool_name",
+        "ubuntu_version",
+        "image_mode",
+        "ubuntu_image_id",
+        "source_ubuntu_image_id",
+        "node_shape",
+        "node_count",
+        "availability_domain",
+        "fault_domains",
+        "boot_volume_size_gbs",
+        "ssh_public_key",
+        "node_labels",
+        "node_ocpus",
+        "node_memory_gbs"
+      ]
+    },
+    {
+      "title": "Image builder",
+      "variables": [
+        "builder_availability_domain",
+        "builder_shape",
+        "builder_ocpus",
+        "builder_memory_gbs"
+      ]
+    },
+    {
+      "title": "Tags",
+      "variables": [
+        "freeform_tags"
+      ]
+    },
+    {
+      "title": "Optional public CPU diagnostic pool",
+      "variables": [
+        "create_public_cpu_pool",
+        "cpu_node_shape",
+        "cpu_node_ocpus",
+        "cpu_node_memory_gbs",
+        "cpu_node_count",
+        "cpu_availability_domain",
+        "cpu_subnet_cidr",
+        "cpu_internet_gateway_id",
+        "cpu_ssh_public_key",
+        "cpu_ssh_access_cidrs"
+      ]
+    }
+  ],
+  "variables": {
+    "tenancy_ocid": {
+      "title": "Tenancy Ocid",
+      "description": "Tenancy OCID.",
+      "type": "string",
+      "required": true,
+      "visible": false
+    },
+    "compartment_ocid": {
+      "title": "Compartment Ocid",
+      "description": "Compartment for new resources.",
+      "type": "oci:identity:compartment:id",
+      "required": true
+    },
+    "region": {
+      "title": "Region",
+      "description": "OCI deployment region.",
+      "type": "oci:identity:region:name",
+      "required": true,
+      "default": "us-ashburn-1"
+    },
+    "auth": {
+      "title": "Auth",
+      "description": "InstancePrincipal for ORM with its injected delegation token.",
+      "type": "enum",
+      "required": false,
+      "default": "InstancePrincipal",
+      "enum": [
+        "ResourcePrincipal",
+        "SecurityToken",
+        "APIKey",
+        "InstancePrincipal"
+      ],
+      "visible": false
+    },
+    "config_file_profile": {
+      "title": "Config File Profile",
+      "description": "OCI CLI/profile name for local execution.",
+      "type": "string",
+      "required": false,
+      "default": "DEFAULT",
+      "visible": false
+    },
+    "deployment_mode": {
+      "title": "Deployment Mode",
+      "description": "Create everything, use an existing VCN, or join an existing OKE cluster.",
+      "type": "enum",
+      "required": false,
+      "default": "new_infrastructure",
+      "enum": [
+        "new_infrastructure",
+        "existing_vcn",
+        "existing_cluster"
+      ]
+    },
+    "cluster_name": {
+      "title": "Cluster Name",
+      "description": "Name prefix for new resources.",
+      "type": "string",
+      "required": false,
+      "default": "oke-ubuntu-gpu"
+    },
+    "existing_cluster_id": {
+      "title": "Existing Cluster Id",
+      "description": "Existing Enhanced OKE cluster OCID (existing_cluster mode).",
+      "type": "oci:container:cluster:id",
+      "required": false,
+      "default": "",
+      "visible": {
+        "eq": [
+          "${deployment_mode}",
+          "existing_cluster"
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      }
+    },
+    "existing_vcn_id": {
+      "title": "Existing Vcn Id",
+      "description": "Select the existing VCN; for an existing cluster, select that cluster's VCN to populate subnet choices.",
+      "type": "oci:core:vcn:id",
+      "required": false,
+      "default": "",
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      },
+      "visible": {
+        "not": [
+          {
+            "eq": [
+              "${deployment_mode}",
+              "new_infrastructure"
+            ]
+          }
+        ]
+      }
+    },
+    "existing_worker_subnet_id": {
+      "title": "Existing Worker Subnet Id",
+      "description": "Existing private regional worker subnet in the selected VCN.",
+      "type": "oci:core:subnet:id",
+      "required": false,
+      "default": "",
+      "visible": {
+        "not": [
+          {
+            "eq": [
+              "${deployment_mode}",
+              "new_infrastructure"
+            ]
+          }
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "vcnId": "${existing_vcn_id}",
+        "hidePublicSubnet": true
+      }
+    },
+    "existing_endpoint_subnet_id": {
+      "title": "Existing Endpoint Subnet Id",
+      "description": "Endpoint subnet for a new cluster in an existing VCN.",
+      "type": "oci:core:subnet:id",
+      "required": false,
+      "default": "",
+      "visible": {
+        "eq": [
+          "${deployment_mode}",
+          "existing_vcn"
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "vcnId": "${existing_vcn_id}"
+      }
+    },
+    "existing_lb_subnet_id": {
+      "title": "Existing Lb Subnet Id",
+      "description": "Load-balancer subnet for a new cluster in an existing VCN.",
+      "type": "oci:core:subnet:id",
+      "required": false,
+      "default": "",
+      "visible": {
+        "eq": [
+          "${deployment_mode}",
+          "existing_vcn"
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "vcnId": "${existing_vcn_id}"
+      }
+    },
+    "kubernetes_version": {
+      "title": "Kubernetes Version",
+      "description": "Exact regional OKE version; for reuse, must equal existing cluster version.",
+      "type": "oci:kubernetes:versions:id",
+      "required": false,
+      "default": "v1.36.4",
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "clusterOptionId": "all"
+      }
+    },
+    "public_api_endpoint": {
+      "title": "Public Api Endpoint",
+      "description": "Give a NEW cluster a public API IP; restrict access with api_access_cidrs.",
+      "type": "boolean",
+      "required": false,
+      "default": false
+    },
+    "api_access_cidrs": {
+      "title": "Api Access Cidrs",
+      "description": "Client CIDRs permitted to reach TCP 6443 on a new endpoint.",
+      "type": "array",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "vcn_cidr": {
+      "title": "Vcn Cidr",
+      "description": "New VCN CIDR; three subnets are derived using VCN prefix + 4.",
+      "type": "string",
+      "required": false,
+      "default": "10.80.0.0/16"
+    },
+    "pods_cidr": {
+      "title": "Pods Cidr",
+      "description": "Flannel overlay pod CIDR for new clusters.",
+      "type": "string",
+      "required": false,
+      "default": "10.244.0.0/16"
+    },
+    "services_cidr": {
+      "title": "Services Cidr",
+      "description": "Kubernetes service CIDR for new clusters.",
+      "type": "string",
+      "required": false,
+      "default": "10.96.0.0/16"
+    },
+    "ssh_access_cidrs": {
+      "title": "Ssh Access Cidrs",
+      "description": "CIDRs allowed to SSH to private workers; requires private network access.",
+      "type": "array",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "ubuntu_version": {
+      "title": "Ubuntu Version",
+      "description": "Ubuntu release; selects the matching Oracle Ubuntu bootstrap repository.",
+      "type": "enum",
+      "required": false,
+      "default": "24.04",
+      "enum": [
+        "22.04",
+        "24.04"
+      ]
+    },
+    "image_mode": {
+      "title": "Image Mode",
+      "description": "Build a clean custom image, or use an existing clean custom Ubuntu image.",
+      "type": "enum",
+      "required": false,
+      "default": "create",
+      "enum": [
+        "create",
+        "existing"
+      ]
+    },
+    "ubuntu_image_id": {
+      "title": "Ubuntu Image Id",
+      "description": "Custom Ubuntu image OCID when image_mode is existing.",
+      "type": "oci:core:image:id",
+      "required": false,
+      "default": "",
+      "visible": {
+        "eq": [
+          "${image_mode}",
+          "existing"
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "shape": "${node_shape}",
+        "operatingSystemVersion": "${ubuntu_version}"
+      }
+    },
+    "source_ubuntu_image_id": {
+      "title": "Source Ubuntu Image Id",
+      "description": "Optional standard x86 Ubuntu source image; empty discovers newest matching image.",
+      "type": "oci:core:image:id",
+      "required": false,
+      "default": "",
+      "visible": {
+        "eq": [
+          "${image_mode}",
+          "create"
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "shape": "${builder_shape}",
+        "operatingSystemVersion": "${ubuntu_version}"
+      }
+    },
+    "node_shape": {
+      "title": "Node Shape",
+      "description": "NVIDIA GPU shape available in the chosen AD; no RDMA/HPC configuration is deployed.",
+      "type": "oci:core:instanceshape:name",
+      "required": false,
+      "default": "VM.GPU.A10.1",
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}",
+        "availabilityDomain": "${availability_domain}"
+      },
+      "pattern": "^(VM|BM)\\.GPU"
+    },
+    "node_count": {
+      "title": "Node Count",
+      "description": "Fixed worker-node count.",
+      "type": "number",
+      "required": false,
+      "default": 1
+    },
+    "availability_domain": {
+      "title": "Availability Domain",
+      "description": "Full availability-domain name, e.g. zkJl:US-ASHBURN-AD-1.",
+      "type": "oci:identity:availabilitydomain:name",
+      "required": true,
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      }
+    },
+    "fault_domains": {
+      "title": "Fault Domains",
+      "description": "Optional fault-domain placement list.",
+      "type": "array",
+      "required": false,
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "boot_volume_size_gbs": {
+      "title": "Boot Volume Size Gbs",
+      "description": "Worker boot volume size in GB, at least 50 and at least image minimum.",
+      "type": "number",
+      "required": false,
+      "default": 100
+    },
+    "ssh_public_key": {
+      "title": "Ssh Public Key",
+      "description": "Optional SSH public key; never supply a private key.",
+      "type": "string",
+      "required": false,
+      "default": ""
+    },
+    "node_labels": {
+      "title": "Node Labels",
+      "description": "Additional Kubernetes labels applied to the Ubuntu workers.",
+      "type": "map",
+      "required": false,
+      "default": "{}",
+      "valueType": "string"
+    },
+    "node_ocpus": {
+      "title": "Node Ocpus",
+      "description": "OCPU count only for a selectable flexible GPU shape; null otherwise.",
+      "type": "number",
+      "required": false,
+      "visible": false
+    },
+    "node_memory_gbs": {
+      "title": "Node Memory Gbs",
+      "description": "Memory GB only for a selectable flexible GPU shape; null otherwise.",
+      "type": "number",
+      "required": false,
+      "visible": false
+    },
+    "builder_shape": {
+      "title": "Builder Shape",
+      "description": "Non-GPU x86 Flex shape for the temporary image-source instance.",
+      "type": "string",
+      "required": false,
+      "default": "VM.Standard.E4.Flex",
+      "visible": {
+        "eq": [
+          "${image_mode}",
+          "create"
+        ]
+      }
+    },
+    "builder_ocpus": {
+      "title": "Builder Ocpus",
+      "description": "Image-builder OCPUs.",
+      "type": "number",
+      "required": false,
+      "default": 1,
+      "visible": {
+        "eq": [
+          "${image_mode}",
+          "create"
+        ]
+      }
+    },
+    "builder_memory_gbs": {
+      "title": "Builder Memory Gbs",
+      "description": "Image-builder memory in GB.",
+      "type": "number",
+      "required": false,
+      "default": 8,
+      "visible": {
+        "eq": [
+          "${image_mode}",
+          "create"
+        ]
+      }
+    },
+    "freeform_tags": {
+      "title": "Freeform Tags",
+      "description": "OCI freeform tags on resources created by this stack.",
+      "type": "map",
+      "required": false,
+      "default": "{\"purpose\": \"nvidia-gpu-operator-certification\"}",
+      "valueType": "string"
+    },
+    "cni_type": {
+      "title": "Pod networking",
+      "type": "enum",
+      "enum": [
+        "FLANNEL_OVERLAY",
+        "OCI_VCN_IP_NATIVE"
+      ],
+      "default": "OCI_VCN_IP_NATIVE"
+    },
+    "max_pods_per_node": {
+      "title": "Maximum native pods per node",
+      "type": "integer",
+      "default": 31,
+      "minimum": 1,
+      "maximum": 110,
+      "visible": {
+        "eq": [
+          "${cni_type}",
+          "OCI_VCN_IP_NATIVE"
+        ]
+      }
+    },
+    "create_iam_policy": {
+      "type": "boolean",
+      "title": "Create missing deployment IAM policy",
+      "description": "Creates a policy for an existing deployment group. Supplying an existing policy OCID reuses it.",
+      "default": false
+    },
+    "existing_iam_policy_id": {
+      "type": "string",
+      "title": "Existing deployment policy OCID",
+      "description": "Optional: reference this policy without modifying it. Leave empty when existing access is already sufficient.",
+      "default": ""
+    },
+    "deployment_group_id": {
+      "type": "string",
+      "title": "Deployment group OCID",
+      "description": "Existing IAM group to grant deployment access; required when creating a policy.",
+      "default": "",
+      "visible": "${create_iam_policy}"
+    },
+    "iam_home_region": {
+      "type": "oci:identity:region:name",
+      "title": "IAM home region",
+      "description": "Required for policy creation or lookup. Select the tenancy home region."
+    },
+    "iam_policy_name": {
+      "type": "string",
+      "title": "New policy name",
+      "default": "oke-ubuntu-gpu-deployment",
+      "visible": "${create_iam_policy}"
+    },
+    "iam_network_compartment_id": {
+      "type": "string",
+      "title": "Reused network compartment OCID",
+      "description": "Optional if reused networking is in a different compartment.",
+      "default": "",
+      "visible": "${create_iam_policy}"
+    },
+    "node_pool_name": {
+      "type": "string",
+      "title": "Node pool name",
+      "description": "Optional, maximum 32 characters. Empty derives a length-safe name from the cluster name.",
+      "default": "",
+      "maxLength": 32
+    },
+    "builder_availability_domain": {
+      "title": "Image Builder Availability Domain",
+      "description": "Optional separate AD for the image-source VM. Pin its existing AD when moving workers to preserve the source VM.",
+      "type": "oci:identity:availabilitydomain:name",
+      "required": false,
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      }
+    },
+    "create_public_cpu_pool": {
+      "type": "boolean",
+      "title": "Add public CPU pool",
+      "default": false,
+      "description": "Add an SSH-accessible Ubuntu CPU pool without replacing the GPU pool. Requires this stack to manage the cluster."
+    },
+    "cpu_node_shape": {
+      "title": "CPU shape",
+      "type": "oci:core:instanceshape:name",
+      "default": "VM.Standard.E4.Flex",
+      "visible": "${create_public_cpu_pool}",
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      },
+      "pattern": "^VM\\.Standard\\.(E[3-9]|3)\\.Flex$"
+    },
+    "cpu_node_ocpus": {
+      "title": "CPU OCPUs",
+      "type": "number",
+      "default": 2,
+      "visible": "${create_public_cpu_pool}"
+    },
+    "cpu_node_memory_gbs": {
+      "title": "CPU memory (GB)",
+      "type": "number",
+      "default": 16,
+      "visible": "${create_public_cpu_pool}"
+    },
+    "cpu_node_count": {
+      "title": "CPU node count",
+      "type": "number",
+      "default": 1,
+      "visible": "${create_public_cpu_pool}"
+    },
+    "cpu_subnet_cidr": {
+      "title": "Public CPU subnet CIDR",
+      "type": "string",
+      "default": "10.80.48.0/24",
+      "visible": "${create_public_cpu_pool}"
+    },
+    "cpu_internet_gateway_id": {
+      "title": "Existing internet gateway OCID",
+      "type": "string",
+      "default": "",
+      "visible": "${create_public_cpu_pool}"
+    },
+    "cpu_ssh_public_key": {
+      "title": "CPU SSH public key",
+      "type": "string",
+      "default": "",
+      "visible": "${create_public_cpu_pool}"
+    },
+    "cpu_availability_domain": {
+      "title": "CPU availability domain",
+      "type": "oci:identity:availabilitydomain:name",
+      "required": false,
+      "visible": "${create_public_cpu_pool}",
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      }
+    },
+    "cpu_ssh_access_cidrs": {
+      "title": "SSH source CIDRs (prefer /32)",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "visible": "${create_public_cpu_pool}"
+    }
+  }
+}
