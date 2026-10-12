@@ -16,7 +16,7 @@ data "oci_core_images" "ubuntu" {
 resource "oci_core_instance" "image_source" {
   count               = var.image_mode == "create" ? 1 : 0
   compartment_id      = var.compartment_ocid
-  availability_domain = var.builder_availability_domain != "" ? var.builder_availability_domain : var.availability_domain
+  availability_domain = var.builder_availability_domain != "" ? var.builder_availability_domain : local.primary_worker_ad
   display_name        = "${var.cluster_name}-image-source"
   shape               = var.builder_shape
   state               = "STOPPED"

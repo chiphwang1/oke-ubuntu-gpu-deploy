@@ -1,13 +1,16 @@
 locals {
-  create_cluster     = var.deployment_mode != "existing_cluster"
-  create_network     = var.deployment_mode == "new_infrastructure"
-  cluster_id         = local.create_cluster ? oci_containerengine_cluster.this[0].id : var.existing_cluster_id
-  vcn_id             = local.create_network ? oci_core_vcn.this[0].id : (local.create_cluster ? var.existing_vcn_id : data.oci_containerengine_cluster.existing[0].vcn_id)
-  worker_subnet_id   = local.create_network ? oci_core_subnet.this["workers"].id : var.existing_worker_subnet_id
-  endpoint_subnet_id = local.create_network ? oci_core_subnet.this["endpoint"].id : var.existing_endpoint_subnet_id
-  lb_subnet_id       = local.create_network ? oci_core_subnet.this["lb"].id : var.existing_lb_subnet_id
-  ubuntu_codename    = { "22.04" = "jammy", "24.04" = "noble" }[var.ubuntu_version]
-  kubernetes_minor   = join(".", slice(split(".", trimprefix(var.kubernetes_version, "v")), 0, 2))
+  worker_availability_domains = length(var.availability_domains) > 0 ? var.availability_domains : (var.availability_domain != "" ? [var.availability_domain] : [])
+  primary_worker_ad           = try(local.worker_availability_domains[0], "")
+  create_cluster              = var.deployment_mode != "existing_cluster"
+  create_network              = var.deployment_mode == "new_infrastructure"
+  cluster_id                  = local.create_cluster ? oci_containerengine_cluster.this[0].id : var.existing_cluster_id
+  vcn_id                      = local.create_network ? oci_core_vcn.this[0].id : (local.create_cluster ? var.existing_vcn_id : data.oci_containerengine_cluster.existing[0].vcn_id)
+  worker_subnet_id            = local.create_network ? oci_core_subnet.this["workers"].id : var.existing_worker_subnet_id
+  endpoint_subnet_id          = local.create_network ? oci_core_subnet.this["endpoint"].id : var.existing_endpoint_subnet_id
+  lb_subnet_id                = local.create_network ? oci_core_subnet.this["lb"].id : var.existing_lb_subnet_id
+  pod_subnet_id               = local.create_network ? oci_core_subnet.this["pods"].id : (var.existing_pod_subnet_id != "" ? var.existing_pod_subnet_id : var.existing_worker_subnet_id)
+  ubuntu_codename             = { "22.04" = "jammy", "24.04" = "noble" }[var.ubuntu_version]
+  kubernetes_minor            = join(".", slice(split(".", trimprefix(var.kubernetes_version, "v")), 0, 2))
   node_packages = { "1.32" = "1.32.10", "1.33" = "1.33.10", "1.34" = "1.34.10", "1.35" = "1.35.2", "1.36" = "1.36.4"
   }
   node_package = "oci-oke-node-all-${lookup(local.node_packages, local.kubernetes_minor, "unsupported")}"
@@ -36,6 +39,10 @@ data "oci_containerengine_cluster_option" "available" {
 data "oci_core_subnet" "workers" {
   count     = local.create_network ? 0 : 1
   subnet_id = var.existing_worker_subnet_id
+}
+data "oci_core_subnet" "pods" {
+  count     = !local.create_network && var.existing_pod_subnet_id != "" ? 1 : 0
+  subnet_id = var.existing_pod_subnet_id
 }
 data "oci_core_subnet" "endpoint" {
   count     = !local.create_network && local.create_cluster ? 1 : 0
@@ -73,13 +80,21 @@ resource "terraform_data" "validate" {
 
     }
     precondition {
-      condition     = !local.create_cluster || !var.public_api_endpoint || length(var.api_access_cidrs) > 0
-      error_message = "Specify api_access_cidrs for a public API endpoint."
+      condition     = length(local.worker_availability_domains) > 0
+      error_message = "Select at least one availability domain."
 
     }
     precondition {
+      condition     = local.create_network ? true : (try(data.oci_core_subnet.workers[0].availability_domain, "") == "" || alltrue([for ad in local.worker_availability_domains : ad == data.oci_core_subnet.workers[0].availability_domain]))
+      error_message = "Use a regional worker subnet for multiple ADs, or select the subnet's AD."
+    }
+    precondition {
+      condition     = length(data.oci_core_subnet.pods) == 0 ? true : (data.oci_core_subnet.pods[0].vcn_id == local.vcn_id && data.oci_core_subnet.pods[0].prohibit_public_ip_on_vnic && (try(data.oci_core_subnet.pods[0].availability_domain, "") == "" || alltrue([for ad in local.worker_availability_domains : ad == data.oci_core_subnet.pods[0].availability_domain])))
+      error_message = "Select a private pod subnet in the cluster VCN that supports every selected AD."
+    }
+    precondition {
       condition     = data.external.network_validation.result.valid == "true"
-      error_message = "VCN, pod and service CIDRs must not overlap; new VCN prefix must be /16 through /24."
+      error_message = "VCN, legacy overlay and service CIDRs must not overlap; new VCN prefix must be /16."
 
     }
 
@@ -97,7 +112,7 @@ resource "oci_containerengine_cluster" "this" {
     cni_type = var.cni_type
   }
   endpoint_config {
-    nsg_ids              = var.create_public_cpu_pool ? [oci_core_network_security_group.cpu_endpoint[0].id] : []
+    nsg_ids              = concat([oci_core_network_security_group.api_access[0].id], var.create_public_cpu_pool ? [oci_core_network_security_group.cpu_endpoint[0].id] : [])
     subnet_id            = local.endpoint_subnet_id
     is_public_ip_enabled = var.public_api_endpoint
 
@@ -105,7 +120,7 @@ resource "oci_containerengine_cluster" "this" {
   options {
     service_lb_subnet_ids = [local.lb_subnet_id]
     kubernetes_network_config {
-      pods_cidr     = var.pods_cidr
+      pods_cidr     = var.cni_type == "FLANNEL_OVERLAY" ? var.pods_cidr : null
       services_cidr = var.services_cidr
 
     }
@@ -131,16 +146,19 @@ resource "oci_containerengine_node_pool" "ubuntu" {
     areLegacyImdsEndpointsDisabled = "true"
   }
   node_config_details {
-    size = var.node_count
-    placement_configs {
-      availability_domain = var.availability_domain
-      subnet_id           = local.worker_subnet_id
-      fault_domains       = length(var.fault_domains) == 0 ? null : var.fault_domains
-
+    nsg_ids = [oci_core_network_security_group.worker_ssh.id]
+    size    = var.node_count
+    dynamic "placement_configs" {
+      for_each = toset(local.worker_availability_domains)
+      content {
+        availability_domain = placement_configs.value
+        subnet_id           = local.worker_subnet_id
+        fault_domains       = length(var.fault_domains) == 0 ? null : var.fault_domains
+      }
     }
     node_pool_pod_network_option_details {
       cni_type          = var.cni_type
-      pod_subnet_ids    = var.cni_type == "OCI_VCN_IP_NATIVE" ? [local.worker_subnet_id] : null
+      pod_subnet_ids    = var.cni_type == "OCI_VCN_IP_NATIVE" ? [local.pod_subnet_id] : null
       max_pods_per_node = var.cni_type == "OCI_VCN_IP_NATIVE" ? var.max_pods_per_node : null
     }
 

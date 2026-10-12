@@ -11,3 +11,5 @@ output "gpu_addon_policy" {
   value      = "OKE GPU Plugin, GPU Operator, GPU health/metrics and Node Feature Discovery add-ons removed and verified at apply time. NVIDIA installs its certification operator separately."
   depends_on = [terraform_data.verify_gpu_disabled]
 }
+
+output "pod_subnet_id" { value = local.pod_subnet_id }

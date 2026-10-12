@@ -1,5 +1,5 @@
 locals {
-  subnet_cidrs = { endpoint = cidrsubnet(var.vcn_cidr, 4, 0), workers = cidrsubnet(var.vcn_cidr, 4, 1), lb = cidrsubnet(var.vcn_cidr, 4, 2)
+  subnet_cidrs = { endpoint = cidrsubnet(var.vcn_cidr, 8, 0), lb = cidrsubnet(var.vcn_cidr, 8, 1), workers = cidrsubnet(var.vcn_cidr, 8, 2), pods = cidrsubnet(var.vcn_cidr, 6, 1)
   }
 }
 resource "oci_core_vcn" "this" {
@@ -75,26 +75,13 @@ resource "oci_core_security_list" "endpoint" {
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-api"
   dynamic "ingress_security_rules" {
-    for_each = setproduct([local.subnet_cidrs.workers], [6443, 12250])
+    for_each = setproduct([local.subnet_cidrs.workers, local.subnet_cidrs.pods], [6443, 12250])
     content {
       protocol = "6"
       source   = ingress_security_rules.value[0]
       tcp_options {
         min = ingress_security_rules.value[1]
         max = ingress_security_rules.value[1]
-      }
-
-    }
-
-  }
-  dynamic "ingress_security_rules" {
-    for_each = toset(var.api_access_cidrs)
-    content {
-      protocol = "6"
-      source   = ingress_security_rules.value
-      tcp_options {
-        min = 6443
-        max = 6443
       }
 
     }
@@ -118,24 +105,12 @@ resource "oci_core_security_list" "workers" {
   compartment_id = var.compartment_ocid
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-workers"
-  # Intra-pool overlay and pod traffic; API webhook/kubelet and private LB traffic.
+  # Node/pod traffic, API webhook/kubelet, private LB and optional CPU traffic.
   dynamic "ingress_security_rules" {
-    for_each = local.subnet_cidrs
+    for_each = merge(local.subnet_cidrs, var.create_public_cpu_pool ? { cpu = var.cpu_subnet_cidr } : {})
     content {
       protocol = "all"
       source   = ingress_security_rules.value
-    }
-
-  }
-  dynamic "ingress_security_rules" {
-    for_each = toset(var.ssh_access_cidrs)
-    content {
-      protocol = "6"
-      source   = ingress_security_rules.value
-      tcp_options {
-        min = 22
-        max = 22
-      }
     }
 
   }
@@ -161,9 +136,12 @@ resource "oci_core_security_list" "lb" {
     protocol = "6"
     source   = var.vcn_cidr
   }
-  egress_security_rules {
-    protocol    = "all"
-    destination = local.subnet_cidrs.workers
+  dynamic "egress_security_rules" {
+    for_each = toset([local.subnet_cidrs.workers, local.subnet_cidrs.pods])
+    content {
+      protocol    = "all"
+      destination = egress_security_rules.value
+    }
   }
 }
 resource "oci_core_subnet" "this" {
@@ -175,6 +153,61 @@ resource "oci_core_subnet" "this" {
   cidr_block                 = each.value
   prohibit_public_ip_on_vnic = !(each.key == "endpoint" && var.public_api_endpoint)
   route_table_id             = each.key == "endpoint" && var.public_api_endpoint ? oci_core_route_table.public[0].id : oci_core_route_table.private[0].id
-  security_list_ids          = [each.key == "endpoint" ? oci_core_security_list.endpoint[0].id : (each.key == "workers" ? oci_core_security_list.workers[0].id : oci_core_security_list.lb[0].id)]
+  security_list_ids          = [each.key == "endpoint" ? oci_core_security_list.endpoint[0].id : (contains(["workers", "pods"], each.key) ? oci_core_security_list.workers[0].id : oci_core_security_list.lb[0].id)]
   freeform_tags              = var.freeform_tags
+}
+
+# Allow SSH from any IPv4 subnet of the selected VCN, including reused VCNs.
+data "oci_core_vcn" "existing" {
+  count  = local.create_network ? 0 : 1
+  vcn_id = local.vcn_id
+}
+locals {
+  worker_ssh_source_cidrs = local.create_network ? toset([var.vcn_cidr]) : toset(data.oci_core_vcn.existing[0].cidr_blocks)
+}
+resource "oci_core_network_security_group" "worker_ssh" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = local.vcn_id
+  display_name   = "${var.cluster_name}-worker-ssh"
+  freeform_tags  = var.freeform_tags
+}
+resource "oci_core_network_security_group_security_rule" "worker_ssh" {
+  for_each                  = local.worker_ssh_source_cidrs
+  network_security_group_id = oci_core_network_security_group.worker_ssh.id
+  direction                 = "INGRESS"
+  protocol                  = "6"
+  source                    = each.value
+  source_type               = "CIDR_BLOCK"
+  stateless                 = false
+  tcp_options {
+    destination_port_range {
+      min = 22
+      max = 22
+    }
+  }
+}
+
+# Applies to new clusters in either a new or reused VCN. Existing clusters retain
+# their endpoint configuration because this stack only adds their worker pool.
+resource "oci_core_network_security_group" "api_access" {
+  count          = local.create_cluster ? 1 : 0
+  compartment_id = var.compartment_ocid
+  vcn_id         = local.vcn_id
+  display_name   = "${var.cluster_name}-api-access"
+  freeform_tags  = var.freeform_tags
+}
+resource "oci_core_network_security_group_security_rule" "api_access" {
+  count                     = local.create_cluster ? 1 : 0
+  network_security_group_id = oci_core_network_security_group.api_access[0].id
+  direction                 = "INGRESS"
+  protocol                  = "6"
+  source                    = "0.0.0.0/0"
+  source_type               = "CIDR_BLOCK"
+  stateless                 = false
+  tcp_options {
+    destination_port_range {
+      min = 6443
+      max = 6443
+    }
+  }
 }

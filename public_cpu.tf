@@ -37,7 +37,7 @@ resource "oci_core_security_list" "public_cpu" {
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-cpu-public"
   dynamic "ingress_security_rules" {
-    for_each = toset([var.cpu_subnet_cidr, local.create_network ? local.subnet_cidrs.workers : data.oci_core_subnet.workers[0].cidr_block, local.create_network ? local.subnet_cidrs.endpoint : data.oci_core_subnet.endpoint[0].cidr_block])
+    for_each = toset([var.cpu_subnet_cidr, local.create_network ? local.subnet_cidrs.workers : data.oci_core_subnet.workers[0].cidr_block, local.create_network ? local.subnet_cidrs.endpoint : data.oci_core_subnet.endpoint[0].cidr_block, local.create_network ? local.subnet_cidrs.pods : (var.existing_pod_subnet_id != "" ? data.oci_core_subnet.pods[0].cidr_block : data.oci_core_subnet.workers[0].cidr_block)])
     content {
       protocol = "all"
       source   = ingress_security_rules.value
@@ -118,14 +118,15 @@ resource "oci_containerengine_node_pool" "public_cpu" {
     memory_in_gbs = var.cpu_node_memory_gbs
   }
   node_config_details {
-    size = var.cpu_node_count
+    nsg_ids = [oci_core_network_security_group.worker_ssh.id]
+    size    = var.cpu_node_count
     placement_configs {
-      availability_domain = var.cpu_availability_domain != "" ? var.cpu_availability_domain : var.availability_domain
+      availability_domain = var.cpu_availability_domain != "" ? var.cpu_availability_domain : local.primary_worker_ad
       subnet_id           = oci_core_subnet.public_cpu[0].id
     }
     node_pool_pod_network_option_details {
       cni_type          = "OCI_VCN_IP_NATIVE"
-      pod_subnet_ids    = [local.worker_subnet_id]
+      pod_subnet_ids    = [local.pod_subnet_id]
       max_pods_per_node = var.max_pods_per_node
     }
   }

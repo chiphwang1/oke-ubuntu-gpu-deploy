@@ -84,27 +84,18 @@ variable "kubernetes_version" {
 
 variable "public_api_endpoint" {
   type        = bool
-  description = "Give a NEW cluster a public API IP; restrict access with api_access_cidrs."
-  default     = false
+  description = "Give a NEW cluster a public API IP. TCP 6443 permits all IPv4 sources; Kubernetes authentication is required."
+  default     = true
 }
 
-variable "api_access_cidrs" {
-  type        = list(string)
-  description = "Client CIDRs permitted to reach TCP 6443 on a new endpoint."
-  default     = []
-  validation {
-    condition     = alltrue([for cidr in var.api_access_cidrs : can(cidrnetmask(cidr))])
-    error_message = "Every entry must be a valid IPv4 CIDR."
-  }
-}
 
 variable "vcn_cidr" {
   type        = string
-  description = "New VCN CIDR; three non-overlapping subnets (VCN prefix + 4) are derived."
-  default     = "10.80.0.0/16"
+  description = "New /16 VCN; /24 API, LB and worker subnets and a /22 native pod subnet are derived."
+  default     = "10.16.0.0/16"
   validation {
-    condition     = can(cidrnetmask(var.vcn_cidr))
-    error_message = "Specify a valid IPv4 CIDR."
+    condition     = can(cidrnetmask(var.vcn_cidr)) && try(tonumber(split("/", var.vcn_cidr)[1]) == 16, false)
+    error_message = "Specify a valid IPv4 /16 VCN CIDR."
   }
 }
 
@@ -125,16 +116,6 @@ variable "services_cidr" {
   validation {
     condition     = can(cidrnetmask(var.services_cidr))
     error_message = "Specify a valid IPv4 CIDR."
-  }
-}
-
-variable "ssh_access_cidrs" {
-  type        = list(string)
-  description = "CIDRs allowed to SSH to private workers; requires private network access."
-  default     = []
-  validation {
-    condition     = alltrue([for cidr in var.ssh_access_cidrs : can(cidrnetmask(cidr))])
-    error_message = "Every entry must be a valid IPv4 CIDR."
   }
 }
 
@@ -173,7 +154,6 @@ variable "source_ubuntu_image_id" {
 variable "node_shape" {
   type        = string
   description = "NVIDIA GPU shape available in the chosen AD; no RDMA/HPC configuration is deployed."
-  default     = "VM.GPU.A10.1"
   validation {
     condition     = can(regex("^(VM|BM)\\.GPU", var.node_shape)) && !strcontains(var.node_shape, "MI300") && !strcontains(var.node_shape, "MI355")
     error_message = "Select an NVIDIA VM.GPU or BM.GPU shape; AMD and HPC shapes are excluded."
@@ -192,13 +172,34 @@ variable "node_count" {
 
 variable "availability_domain" {
   type        = string
-  description = "Full availability-domain name, e.g. zkJl:US-ASHBURN-AD-1."
+  description = "Legacy single worker AD; use availability_domains for multiple placements."
+  default     = ""
+}
+
+variable "availability_domains" {
+  type        = list(string)
+  default     = []
+  description = "Worker ADs in selection order; the first is the automatic image-builder and CPU-pool AD."
+  validation {
+    condition     = alltrue([for ad in var.availability_domains : trimspace(ad) != ""]) && length(distinct(var.availability_domains)) == length(var.availability_domains)
+    error_message = "Availability domains must be non-empty and unique."
+  }
+}
+
+variable "network_compartment_ocid" {
+  type        = string
+  default     = ""
+  description = "ORM discovery compartment for existing VCN and subnets; resource OCIDs remain authoritative."
 }
 
 variable "fault_domains" {
   type        = list(string)
-  description = "Optional fault-domain placement list."
+  description = "Fault domains applied to every selected worker AD; empty lets OKE choose."
   default     = []
+  validation {
+    condition     = alltrue([for fd in var.fault_domains : contains(["FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"], fd)]) && length(distinct(var.fault_domains)) == length(var.fault_domains)
+    error_message = "Select distinct FAULT-DOMAIN-1, FAULT-DOMAIN-2 or FAULT-DOMAIN-3 values."
+  }
 }
 
 variable "boot_volume_size_gbs" {
@@ -291,7 +292,7 @@ variable "node_pool_name" {
 variable "builder_availability_domain" {
   type        = string
   default     = ""
-  description = "Image-source VM AD; empty uses availability_domain. Pin this when changing worker placement to retain the existing source VM."
+  description = "Image-source VM AD; empty uses the first selected worker AD. Pin this when changing worker placement to retain the existing source VM."
 }
 
 variable "create_public_cpu_pool" {
@@ -331,7 +332,7 @@ variable "cpu_availability_domain" {
 }
 variable "cpu_subnet_cidr" {
   type        = string
-  default     = "10.80.48.0/24"
+  default     = "10.16.3.0/24"
   description = "Unused CIDR within the selected VCN for the public CPU subnet."
   validation {
     condition     = can(cidrnetmask(var.cpu_subnet_cidr))
@@ -356,4 +357,15 @@ variable "cpu_ssh_access_cidrs" {
     condition     = alltrue([for c in var.cpu_ssh_access_cidrs : can(cidrnetmask(c)) && try(tonumber(split("/", c)[1]) >= 24, false)])
     error_message = "Use valid IPv4 source CIDRs of /24 or narrower; prefer your workstation /32."
   }
+}
+
+variable "existing_pod_subnet_id" {
+  type        = string
+  default     = ""
+  description = "Existing private regional VCN-native pod subnet. Empty retains the worker subnet for legacy CLI configurations."
+}
+variable "customize_node_labels" {
+  type        = bool
+  default     = false
+  description = "Show the optional node label editor in ORM."
 }

@@ -2,7 +2,7 @@
   "title": "Ubuntu GPU certification on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "locale": "en",
   "variableGroups": [
     {
@@ -21,8 +21,10 @@
         "deployment_mode",
         "cluster_name",
         "existing_cluster_id",
+        "network_compartment_ocid",
         "existing_vcn_id",
         "existing_worker_subnet_id",
+        "existing_pod_subnet_id",
         "existing_endpoint_subnet_id",
         "existing_lb_subnet_id"
       ]
@@ -31,8 +33,7 @@
       "title": "Cluster",
       "variables": [
         "kubernetes_version",
-        "public_api_endpoint",
-        "api_access_cidrs"
+        "public_api_endpoint"
       ]
     },
     {
@@ -41,7 +42,6 @@
         "vcn_cidr",
         "pods_cidr",
         "services_cidr",
-        "ssh_access_cidrs",
         "cni_type",
         "max_pods_per_node"
       ]
@@ -53,25 +53,16 @@
         "ubuntu_version",
         "image_mode",
         "ubuntu_image_id",
-        "source_ubuntu_image_id",
+        "availability_domains",
         "node_shape",
         "node_count",
-        "availability_domain",
         "fault_domains",
         "boot_volume_size_gbs",
         "ssh_public_key",
+        "customize_node_labels",
         "node_labels",
         "node_ocpus",
         "node_memory_gbs"
-      ]
-    },
-    {
-      "title": "Image builder",
-      "variables": [
-        "builder_availability_domain",
-        "builder_shape",
-        "builder_ocpus",
-        "builder_memory_gbs"
       ]
     },
     {
@@ -115,7 +106,7 @@
       "description": "OCI deployment region.",
       "type": "oci:identity:region:name",
       "required": true,
-      "default": "us-ashburn-1"
+      "default": "${session.region}"
     },
     "auth": {
       "title": "Auth",
@@ -176,12 +167,11 @@
     },
     "existing_vcn_id": {
       "title": "Existing Vcn Id",
-      "description": "Select the existing VCN; for an existing cluster, select that cluster's VCN to populate subnet choices.",
+      "description": "Select a VCN in the network compartment and current Console region. For cluster reuse, select the cluster VCN.",
       "type": "oci:core:vcn:id",
-      "required": false,
-      "default": "",
+      "required": true,
       "dependsOn": {
-        "compartmentId": "${compartment_ocid}"
+        "compartmentId": "${network_compartment_ocid}"
       },
       "visible": {
         "not": [
@@ -198,8 +188,7 @@
       "title": "Existing Worker Subnet Id",
       "description": "Existing private regional worker subnet in the selected VCN.",
       "type": "oci:core:subnet:id",
-      "required": false,
-      "default": "",
+      "required": true,
       "visible": {
         "not": [
           {
@@ -211,7 +200,7 @@
         ]
       },
       "dependsOn": {
-        "compartmentId": "${compartment_ocid}",
+        "compartmentId": "${network_compartment_ocid}",
         "vcnId": "${existing_vcn_id}",
         "hidePublicSubnet": true
       }
@@ -220,8 +209,7 @@
       "title": "Existing Endpoint Subnet Id",
       "description": "Endpoint subnet for a new cluster in an existing VCN.",
       "type": "oci:core:subnet:id",
-      "required": false,
-      "default": "",
+      "required": true,
       "visible": {
         "eq": [
           "${deployment_mode}",
@@ -229,7 +217,7 @@
         ]
       },
       "dependsOn": {
-        "compartmentId": "${compartment_ocid}",
+        "compartmentId": "${network_compartment_ocid}",
         "vcnId": "${existing_vcn_id}"
       }
     },
@@ -237,8 +225,7 @@
       "title": "Existing Lb Subnet Id",
       "description": "Load-balancer subnet for a new cluster in an existing VCN.",
       "type": "oci:core:subnet:id",
-      "required": false,
-      "default": "",
+      "required": true,
       "visible": {
         "eq": [
           "${deployment_mode}",
@@ -246,7 +233,7 @@
         ]
       },
       "dependsOn": {
-        "compartmentId": "${compartment_ocid}",
+        "compartmentId": "${network_compartment_ocid}",
         "vcnId": "${existing_vcn_id}"
       }
     },
@@ -263,51 +250,35 @@
     },
     "public_api_endpoint": {
       "title": "Public Api Endpoint",
-      "description": "Give a NEW cluster a public API IP; restrict access with api_access_cidrs.",
+      "description": "Give a new cluster a public API IP. TCP 6443 allows all IPv4 sources; Kubernetes authentication is required.",
       "type": "boolean",
       "required": false,
-      "default": false
-    },
-    "api_access_cidrs": {
-      "title": "Api Access Cidrs",
-      "description": "Client CIDRs permitted to reach TCP 6443 on a new endpoint.",
-      "type": "array",
-      "required": false,
-      "items": {
-        "type": "string"
-      },
-      "default": []
+      "default": true,
+      "visible": false
     },
     "vcn_cidr": {
       "title": "Vcn Cidr",
-      "description": "New VCN CIDR; three subnets are derived using VCN prefix + 4.",
+      "description": "Automatic /16 VCN with /24 API, LB and node subnets and a /22 native pod subnet.",
       "type": "string",
       "required": false,
-      "default": "10.80.0.0/16"
+      "default": "10.16.0.0/16",
+      "visible": false
     },
     "pods_cidr": {
       "title": "Pods Cidr",
       "description": "Flannel overlay pod CIDR for new clusters.",
       "type": "string",
       "required": false,
-      "default": "10.244.0.0/16"
+      "default": "10.244.0.0/16",
+      "visible": false
     },
     "services_cidr": {
       "title": "Services Cidr",
       "description": "Kubernetes service CIDR for new clusters.",
       "type": "string",
       "required": false,
-      "default": "10.96.0.0/16"
-    },
-    "ssh_access_cidrs": {
-      "title": "Ssh Access Cidrs",
-      "description": "CIDRs allowed to SSH to private workers; requires private network access.",
-      "type": "array",
-      "required": false,
-      "items": {
-        "type": "string"
-      },
-      "default": []
+      "default": "10.96.0.0/16",
+      "visible": false
     },
     "ubuntu_version": {
       "title": "Ubuntu Version",
@@ -355,12 +326,7 @@
       "type": "oci:core:image:id",
       "required": false,
       "default": "",
-      "visible": {
-        "eq": [
-          "${image_mode}",
-          "create"
-        ]
-      },
+      "visible": false,
       "dependsOn": {
         "compartmentId": "${compartment_ocid}",
         "shape": "${builder_shape}",
@@ -369,13 +335,11 @@
     },
     "node_shape": {
       "title": "Node Shape",
-      "description": "NVIDIA GPU shape available in the chosen AD; no RDMA/HPC configuration is deployed.",
+      "description": "Select a regional NVIDIA GPU shape supported in every selected availability domain. No HPC/RDMA configuration is deployed.",
       "type": "oci:core:instanceshape:name",
-      "required": false,
-      "default": "VM.GPU.A10.1",
+      "required": true,
       "dependsOn": {
-        "compartmentId": "${compartment_ocid}",
-        "availabilityDomain": "${availability_domain}"
+        "compartmentId": "${compartment_ocid}"
       },
       "pattern": "^(VM|BM)\\.GPU"
     },
@@ -387,23 +351,24 @@
       "default": 1
     },
     "availability_domain": {
-      "title": "Availability Domain",
-      "description": "Full availability-domain name, e.g. zkJl:US-ASHBURN-AD-1.",
-      "type": "oci:identity:availabilitydomain:name",
-      "required": true,
-      "dependsOn": {
-        "compartmentId": "${compartment_ocid}"
-      }
+      "type": "string",
+      "visible": false,
+      "default": ""
     },
     "fault_domains": {
-      "title": "Fault Domains",
-      "description": "Optional fault-domain placement list.",
-      "type": "array",
-      "required": false,
-      "items": {
-        "type": "string"
+      "type": "enum",
+      "title": "Fault domains",
+      "description": "Select one or more fault domains for every selected AD. Leave empty to let OKE choose.",
+      "enum": [
+        "FAULT-DOMAIN-1",
+        "FAULT-DOMAIN-2",
+        "FAULT-DOMAIN-3"
+      ],
+      "allowMultiple": true,
+      "additionalProps": {
+        "allowMultiple": true
       },
-      "default": []
+      "required": false
     },
     "boot_volume_size_gbs": {
       "title": "Boot Volume Size Gbs",
@@ -425,7 +390,8 @@
       "type": "map",
       "required": false,
       "default": "{}",
-      "valueType": "map_string_value"
+      "valueType": "map_string_value",
+      "visible": "${customize_node_labels}"
     },
     "node_ocpus": {
       "title": "Node Ocpus",
@@ -447,12 +413,7 @@
       "type": "string",
       "required": false,
       "default": "VM.Standard.E4.Flex",
-      "visible": {
-        "eq": [
-          "${image_mode}",
-          "create"
-        ]
-      }
+      "visible": false
     },
     "builder_ocpus": {
       "title": "Builder Ocpus",
@@ -460,12 +421,7 @@
       "type": "number",
       "required": false,
       "default": 1,
-      "visible": {
-        "eq": [
-          "${image_mode}",
-          "create"
-        ]
-      }
+      "visible": false
     },
     "builder_memory_gbs": {
       "title": "Builder Memory Gbs",
@@ -473,12 +429,7 @@
       "type": "number",
       "required": false,
       "default": 8,
-      "visible": {
-        "eq": [
-          "${image_mode}",
-          "create"
-        ]
-      }
+      "visible": false
     },
     "freeform_tags": {
       "title": "Freeform Tags",
@@ -495,7 +446,8 @@
         "FLANNEL_OVERLAY",
         "OCI_VCN_IP_NATIVE"
       ],
-      "default": "OCI_VCN_IP_NATIVE"
+      "default": "OCI_VCN_IP_NATIVE",
+      "visible": false
     },
     "max_pods_per_node": {
       "title": "Maximum native pods per node",
@@ -524,7 +476,9 @@
       "required": false,
       "dependsOn": {
         "compartmentId": "${compartment_ocid}"
-      }
+      },
+      "visible": false,
+      "default": ""
     },
     "create_public_cpu_pool": {
       "type": "boolean",
@@ -563,8 +517,8 @@
     "cpu_subnet_cidr": {
       "title": "Public CPU subnet CIDR",
       "type": "string",
-      "default": "10.80.48.0/24",
-      "visible": "${create_public_cpu_pool}"
+      "default": "10.16.3.0/24",
+      "visible": false
     },
     "cpu_internet_gateway_id": {
       "title": "Existing internet gateway OCID",
@@ -588,7 +542,7 @@
       }
     },
     "cpu_ssh_access_cidrs": {
-      "title": "SSH source CIDRs (prefer /32)",
+      "title": "External CPU SSH source CIDRs (prefer /32)",
       "type": "array",
       "items": {
         "type": "string"
@@ -599,6 +553,67 @@
     "map_string_value": {
       "type": "string",
       "visible": false
+    },
+    "network_compartment_ocid": {
+      "type": "oci:identity:compartment:id",
+      "title": "Network compartment",
+      "description": "Select the compartment containing the existing VCN and subnets. It may differ from the stack compartment.",
+      "required": true,
+      "visible": {
+        "not": [
+          {
+            "eq": [
+              "${deployment_mode}",
+              "new_infrastructure"
+            ]
+          }
+        ]
+      }
+    },
+    "availability_domains": {
+      "type": "list",
+      "valueType": "worker_ad_choice",
+      "title": "Availability domains",
+      "description": "Add one or more availability domains from the dropdown. Use Add item for another AD. The first selection is also used for the automatic image builder.",
+      "required": true
+    },
+    "worker_ad_choice": {
+      "type": "oci:identity:availabilitydomain:name",
+      "title": "Availability domain",
+      "visible": false,
+      "dependsOn": {
+        "compartmentId": "${compartment_ocid}"
+      },
+      "required": true
+    },
+    "existing_pod_subnet_id": {
+      "title": "Existing Pod Subnet",
+      "description": "Select a private regional subnet for VCN-native pod addresses.",
+      "type": "oci:core:subnet:id",
+      "required": true,
+      "visible": {
+        "not": [
+          {
+            "eq": [
+              "${deployment_mode}",
+              "new_infrastructure"
+            ]
+          }
+        ]
+      },
+      "dependsOn": {
+        "compartmentId": "${network_compartment_ocid}",
+        "vcnId": "${existing_vcn_id}",
+        "hidePublicSubnet": true
+      }
+    },
+    "customize_node_labels": {
+      "type": "boolean",
+      "title": "Add custom node labels",
+      "default": false,
+      "required": false,
+      "description": "Optional. Enable only if you want additional Kubernetes node labels."
     }
-  }
+  },
+  "informationalText": "New infrastructure uses VCN 10.16.0.0/16: public API 10.16.0.0/24, load balancers 10.16.1.0/24, nodes 10.16.2.0/24 and private VCN-native pods 10.16.4.0/22. TCP 6443 allows all IPv4 sources. The image builder uses VM.Standard.E4.Flex with 1 OCPU and 8 GB RAM automatically."
 }
