@@ -153,7 +153,7 @@ resource "oci_core_subnet" "this" {
   cidr_block                 = each.value
   prohibit_public_ip_on_vnic = !(each.key == "endpoint" && var.public_api_endpoint)
   route_table_id             = each.key == "endpoint" && var.public_api_endpoint ? oci_core_route_table.public[0].id : oci_core_route_table.private[0].id
-  security_list_ids          = [each.key == "endpoint" ? oci_core_security_list.endpoint[0].id : (contains(["workers", "pods"], each.key) ? oci_core_security_list.workers[0].id : oci_core_security_list.lb[0].id)]
+  security_list_ids          = [each.key == "endpoint" ? oci_core_security_list.endpoint[0].id : (contains(["workers", "pods"], each.key) ? oci_core_security_list.workers[0].id : oci_core_security_list.lb[0].id), oci_core_security_list.private_access.id]
   freeform_tags              = var.freeform_tags
 }
 
@@ -210,4 +210,64 @@ resource "oci_core_network_security_group_security_rule" "api_access" {
       max = 6443
     }
   }
+}
+
+# Shared by every subnet created by this stack and added to selected reused
+# subnets without replacing their existing security-list associations.
+resource "oci_core_security_list" "private_access" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = local.vcn_id
+  display_name   = "${var.cluster_name}-allow-10-8"
+  freeform_tags  = var.freeform_tags
+  ingress_security_rules {
+    protocol    = "all"
+    source      = "10.0.0.0/8"
+    source_type = "CIDR_BLOCK"
+    stateless   = false
+  }
+}
+locals {
+  reused_access_subnet_ids = local.create_network ? [] : distinct(compact(concat(
+    [local.worker_subnet_id, local.pod_subnet_id],
+    local.create_cluster ? [local.endpoint_subnet_id, local.lb_subnet_id] : concat(
+      [try(data.oci_containerengine_cluster.existing[0].endpoint_config[0].subnet_id, "")],
+      try(coalesce(tolist(data.oci_containerengine_cluster.existing[0].options[0].service_lb_subnet_ids), []), [])
+    )
+  )))
+}
+resource "terraform_data" "reused_subnet_access" {
+  count = local.create_network ? 0 : 1
+  input = {
+    subnet_ids       = jsonencode(local.reused_access_subnet_ids)
+    security_list_id = oci_core_security_list.private_access.id
+    vcn_id           = local.vcn_id
+    region           = var.region
+    auth             = local.cli_auth
+    profile          = var.config_file_profile
+  }
+  triggers_replace = [local.reused_access_subnet_ids, oci_core_security_list.private_access.id, filesha256("${path.module}/scripts/subnet_access.py")]
+  provisioner "local-exec" {
+    command = "python3 \"${path.module}/scripts/subnet_access.py\" attach"
+    environment = {
+      SUBNET_IDS       = self.input.subnet_ids
+      SECURITY_LIST_ID = self.input.security_list_id
+      VCN_ID           = self.input.vcn_id
+      OCI_CLI_REGION   = self.input.region
+      OCI_CLI_AUTH     = self.input.auth
+      OCI_CLI_PROFILE  = self.input.profile
+    }
+  }
+  provisioner "local-exec" {
+    when    = destroy
+    command = "python3 \"${path.module}/scripts/subnet_access.py\" detach"
+    environment = {
+      SUBNET_IDS       = self.input.subnet_ids
+      SECURITY_LIST_ID = self.input.security_list_id
+      VCN_ID           = self.input.vcn_id
+      OCI_CLI_REGION   = self.input.region
+      OCI_CLI_AUTH     = self.input.auth
+      OCI_CLI_PROFILE  = self.input.profile
+    }
+  }
+
 }

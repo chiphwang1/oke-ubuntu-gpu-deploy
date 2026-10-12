@@ -85,11 +85,11 @@ resource "terraform_data" "validate" {
 
     }
     precondition {
-      condition     = local.create_network ? true : (try(data.oci_core_subnet.workers[0].availability_domain, "") == "" || alltrue([for ad in local.worker_availability_domains : ad == data.oci_core_subnet.workers[0].availability_domain]))
+      condition     = local.create_network ? true : (try(coalesce(data.oci_core_subnet.workers[0].availability_domain, "regional"), "regional") == "regional" || alltrue([for ad in local.worker_availability_domains : ad == data.oci_core_subnet.workers[0].availability_domain]))
       error_message = "Use a regional worker subnet for multiple ADs, or select the subnet's AD."
     }
     precondition {
-      condition     = length(data.oci_core_subnet.pods) == 0 ? true : (data.oci_core_subnet.pods[0].vcn_id == local.vcn_id && data.oci_core_subnet.pods[0].prohibit_public_ip_on_vnic && (try(data.oci_core_subnet.pods[0].availability_domain, "") == "" || alltrue([for ad in local.worker_availability_domains : ad == data.oci_core_subnet.pods[0].availability_domain])))
+      condition     = length(data.oci_core_subnet.pods) == 0 ? true : (data.oci_core_subnet.pods[0].vcn_id == local.vcn_id && data.oci_core_subnet.pods[0].prohibit_public_ip_on_vnic && (try(coalesce(data.oci_core_subnet.pods[0].availability_domain, "regional"), "regional") == "regional" || alltrue([for ad in local.worker_availability_domains : ad == data.oci_core_subnet.pods[0].availability_domain])))
       error_message = "Select a private pod subnet in the cluster VCN that supports every selected AD."
     }
     precondition {
@@ -131,7 +131,7 @@ resource "oci_containerengine_cluster" "this" {
     }
 
   }
-  depends_on = [terraform_data.validate]
+  depends_on = [terraform_data.validate, terraform_data.reused_subnet_access]
 }
 resource "oci_containerengine_node_pool" "ubuntu" {
   compartment_id     = var.compartment_ocid
@@ -139,7 +139,7 @@ resource "oci_containerengine_node_pool" "ubuntu" {
   name               = var.node_pool_name != "" ? var.node_pool_name : "${substr(var.cluster_name, 0, 21)}-ubuntu-gpu"
   kubernetes_version = var.kubernetes_version
   node_shape         = var.node_shape
-  ssh_public_key     = var.ssh_public_key == "" ? null : var.ssh_public_key
+  ssh_public_key     = local.worker_ssh_public_key == "" ? null : local.worker_ssh_public_key
   freeform_tags      = var.freeform_tags
   node_metadata = {
     user_data                      = base64encode(local.gpu_cloud_init)
@@ -186,7 +186,7 @@ resource "oci_containerengine_node_pool" "ubuntu" {
     }
 
   }
-  depends_on = [terraform_data.validate, terraform_data.validate_image, terraform_data.disable_gpu_before_nodes]
+  depends_on = [terraform_data.validate, terraform_data.validate_image, terraform_data.disable_gpu_before_nodes, terraform_data.reused_subnet_access]
 }
 # No GPU add-on is installed by this stack. These guards remove managed add-ons
 # that OKE may already have installed. Never use a fake "enabled=false" argument.

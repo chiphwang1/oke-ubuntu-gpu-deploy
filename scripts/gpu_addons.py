@@ -47,7 +47,7 @@ def orm_request(*args):
         raise RuntimeError(f"OKE API {exc.status} {exc.code}; request ID {exc.request_id}") from None
 
 
-def ensure_orm_sdk():
+def ensure_orm_sdk(script_path=None):
     if not uses_delegation():
         return
     try:
@@ -64,7 +64,7 @@ def ensure_orm_sdk():
         if not interpreter or not any("python" in x for x in interpreter):
             raise RuntimeError("Cannot find the OCI CLI Python interpreter")
         os.environ["OKE_SDK_REEXEC"] = "1"
-        os.execvpe(interpreter[0], interpreter + [str(Path(__file__).resolve())] + sys.argv[1:], os.environ)
+        os.execvpe(interpreter[0], interpreter + [str(Path(script_path or __file__).resolve())] + sys.argv[1:], os.environ)
 
 
 def is_gpu_addon(name):

@@ -1,5 +1,5 @@
 # Optional diagnostic pool: a public primary VNIC, with native pods retained in
-# the existing private worker subnet. The original GPU pool is not replaced.
+# the dedicated private pod subnet. The original GPU pool is not replaced.
 resource "terraform_data" "validate_public_cpu" {
   lifecycle {
     precondition {
@@ -11,7 +11,7 @@ resource "terraform_data" "validate_public_cpu" {
       error_message = "Public CPU diagnostics requires a cluster managed by this stack and VCN-native CNI."
     }
     precondition {
-      condition     = !var.create_public_cpu_pool || (var.cpu_ssh_public_key != "" && length(var.cpu_ssh_access_cidrs) > 0)
+      condition     = !var.create_public_cpu_pool || (local.cpu_ssh_public_key != "" && length(var.cpu_ssh_access_cidrs) > 0)
       error_message = "Provide a public SSH key and a restricted source CIDR allowlist for the public CPU pool."
     }
     precondition {
@@ -77,7 +77,7 @@ resource "oci_core_subnet" "public_cpu" {
   cidr_block                 = var.cpu_subnet_cidr
   prohibit_public_ip_on_vnic = false
   route_table_id             = oci_core_route_table.public_cpu[0].id
-  security_list_ids          = [oci_core_security_list.public_cpu[0].id]
+  security_list_ids          = [oci_core_security_list.public_cpu[0].id, oci_core_security_list.private_access.id]
   freeform_tags              = var.freeform_tags
 }
 resource "oci_core_network_security_group" "cpu_endpoint" {
@@ -107,7 +107,7 @@ resource "oci_containerengine_node_pool" "public_cpu" {
   name               = "${substr(var.cluster_name, 0, 21)}-public-cpu"
   kubernetes_version = var.kubernetes_version
   node_shape         = var.cpu_node_shape
-  ssh_public_key     = var.cpu_ssh_public_key
+  ssh_public_key     = local.cpu_ssh_public_key
   freeform_tags      = var.freeform_tags
   node_metadata = {
     user_data                      = base64encode(local.cloud_init)
@@ -139,7 +139,7 @@ resource "oci_containerengine_node_pool" "public_cpu" {
     key   = "certification.oci/pool-purpose"
     value = "cpu-diagnostics"
   }
-  depends_on = [terraform_data.validate_public_cpu, terraform_data.disable_gpu_before_nodes, oci_core_network_security_group_security_rule.cpu_endpoint]
+  depends_on = [terraform_data.validate_public_cpu, terraform_data.disable_gpu_before_nodes, oci_core_network_security_group_security_rule.cpu_endpoint, terraform_data.reused_subnet_access]
 }
 output "public_cpu_node_pool_id" { value = try(oci_containerengine_node_pool.public_cpu[0].id, null) }
 output "public_cpu_subnet_id" { value = try(oci_core_subnet.public_cpu[0].id, null) }

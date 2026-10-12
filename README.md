@@ -1,10 +1,10 @@
 # Ubuntu GPU certification on OKE
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?region=us-ashburn-1&zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.3%2Foke-ubuntu-gpu.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.4%2Foke-ubuntu-gpu.zip)
 
 The button loads the release ZIP into OCI Resource Manager. The package includes Terraform files and `schema.yaml` at its root. After accepting the configuration and selecting **Next**, Resource Manager displays the schema-driven configuration form.
 
-Select your compartment, region, Ubuntu version, GPU shape, node count and deployment mode. The stack can create infrastructure, reuse existing VCN/subnets, or add workers to an existing Enhanced OKE cluster. VCN-native CNI is configured automatically. An optional public CPU diagnostic pool is available with a supplied SSH public key and restricted source CIDRs.
+Select your compartment, region, Ubuntu version, GPU shape, node count and deployment mode. The stack can create infrastructure, reuse existing VCN/subnets, or add workers to an existing Enhanced OKE cluster. VCN-native CNI is configured automatically. An optional public CPU diagnostic pool is available with a generated or supplied SSH public key and restricted external source CIDRs.
 
 Use Terraform **1.5.x** in Resource Manager and retain `InstancePrincipal` authentication. The deploying identity must already have OCI permissions for the selected resources. On Review, clear **Run apply** to create the stack first, then run Plan and review before Apply. Clicking the button alone does not provision infrastructure.
 
@@ -18,8 +18,24 @@ The node shape is required. Add availability domains using the dropdown list; se
 
 For existing networking, choose Network compartment, VCN, and subnets in that order. Use regional worker subnets for multiple ADs. Resource discovery uses the current Console region.
 
-Workers permit SSH from every IPv4 subnet in their VCN, with a supplied public key. Public CPU external SSH retains its restricted allowlist. New cluster endpoints allow TCP 6443 from 0.0.0.0/0; public endpoints remain subject to Kubernetes authentication. Existing-cluster mode retains that cluster's endpoint rules.
+Workers permit SSH from every IPv4 subnet in their VCN, with a supplied public key. All selected stack subnets also allow all inbound protocols from 10.0.0.0/8. Other public CPU external SSH sources retain their restricted allowlist. New cluster endpoints allow TCP 6443 from 0.0.0.0/0; public endpoints remain subject to Kubernetes authentication. Existing-cluster mode retains that cluster's endpoint rules.
 
 The automatic network layout is VCN 10.16.0.0/16, public API 10.16.0.0/24, private load balancers 10.16.1.0/24, private nodes 10.16.2.0/24, and private native pods 10.16.4.0/22. The optional public CPU subnet is 10.16.3.0/24. CIDR fields are hidden in ORM. Existing-network mode provides separate worker and pod subnet dropdowns.
 
 These defaults apply to new deployments. Review Terraform Plan before updating an older stack: changing subnet CIDRs can replace networking and nodes. Existing deployed resources are not modified merely by publishing this package.
+
+### SSH key options
+
+Enable **Generate worker SSH key pair** (or the CPU equivalent) to generate an RSA-4096 pair during Apply. Otherwise, use **Choose SSH key file** to upload an existing `.pub` file or **Paste SSH key**. Keep the corresponding private key on your computer.
+
+Generated private keys are stored in Terraform state and exposed as sensitive outputs in **Application information**. They become available after Apply. ORM supports copying the output; it does not provide a browser-side key-generation/download widget. Save the copied key to a file with mode 600, or use the included download helper:
+
+```bash
+python3 scripts/download_ssh_key.py --job-id <apply-job-ocid> --region <region> --pool gpu --output ~/.ssh/oke_gpu
+```
+
+Use `--pool cpu` for the separate CPU key. Optional `--profile` and `--auth` select OCI CLI authentication. The helper downloads job state into a private temporary directory, saves only the requested key with mode 600, removes temporary state and refuses to overwrite existing files. Users with Terraform-state access can retrieve generated keys; supplied-key mode stores only a public key.
+
+The existing internet gateway field appears only when adding the public CPU pool to an **existing VCN**. New infrastructure automatically creates its internet gateway. For reused subnets, the stack adds a shared 10/8 security list while preserving their existing list associations. This affects all resources in the selected API, worker, pod and LB subnets; unrelated VCN subnets are untouched. A free security-list association slot is required. Explicit future cleanup detaches only this stack's shared list.
+
+The Deploy button no longer forces Ashburn. Region defaults to the current Console region and remains an editable dropdown. ORM does not resolve a tenancy-home-region schema default; open the Console in the home region before launching the button to use that default. Use the intended region in the Console before selecting regional resources.

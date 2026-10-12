@@ -369,3 +369,14 @@ variable "customize_node_labels" {
   default     = false
   description = "Show the optional node label editor in ORM."
 }
+
+variable "generate_ssh_key" {
+  type        = bool
+  default     = false
+  description = "Generate an RSA worker SSH key pair during Apply. The private key is stored in Terraform state."
+}
+variable "generate_cpu_ssh_key" {
+  type        = bool
+  default     = false
+  description = "Generate a separate RSA CPU-worker SSH key pair during Apply. The private key is stored in Terraform state."
+}

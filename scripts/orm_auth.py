@@ -29,13 +29,14 @@ def delegation_token():
     return token
 
 
-def client():
+def client(service="container_engine"):
     import oci
     from oci.auth.signers import EphemeralResourcePrincipalSigner
+    factory = {"container_engine": oci.container_engine.ContainerEngineClient, "core": oci.core.VirtualNetworkClient}[service]
 
     if os.environ.get("OCI_CLI_AUTH") == "instance_principal":
         signer = oci.auth.signers.InstancePrincipalsDelegationTokenSigner(delegation_token=delegation_token())
-        return oci.container_engine.ContainerEngineClient(
+        return factory(
             {"region": os.environ["OCI_CLI_REGION"]}, signer=signer,
             retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY,
         )
@@ -55,7 +56,7 @@ def client():
         region=os.environ.get("OCI_CLI_REGION"),
         generic_headers=["date", "(request-target)", "host", "opc-obo-token"],
     )
-    return oci.container_engine.ContainerEngineClient(
+    return factory(
         {"region": os.environ["OCI_CLI_REGION"]}, signer=signer,
         retry_strategy=oci.retry.DEFAULT_RETRY_STRATEGY,
     )
