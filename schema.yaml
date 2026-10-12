@@ -2,7 +2,7 @@
   "title": "Ubuntu GPU certification on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "locale": "en",
   "variableGroups": [
     {
@@ -436,7 +436,7 @@
       "type": "map",
       "required": false,
       "default": "{}",
-      "valueType": "string"
+      "valueType": "map_string_value"
     },
     "node_ocpus": {
       "title": "Node Ocpus",
@@ -497,7 +497,7 @@
       "type": "map",
       "required": false,
       "default": "{\"purpose\": \"nvidia-gpu-operator-certification\"}",
-      "valueType": "string"
+      "valueType": "map_string_value"
     },
     "cni_type": {
       "title": "Pod networking",
@@ -643,6 +643,10 @@
       },
       "default": [],
       "visible": "${create_public_cpu_pool}"
+    },
+    "map_string_value": {
+      "type": "string",
+      "visible": false
     }
   }
 }
