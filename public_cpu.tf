@@ -11,8 +11,8 @@ resource "terraform_data" "validate_public_cpu" {
       error_message = "Public CPU diagnostics requires a cluster managed by this stack and VCN-native CNI."
     }
     precondition {
-      condition     = !var.create_public_cpu_pool || (local.cpu_ssh_public_key != "" && length(var.cpu_ssh_access_cidrs) > 0)
-      error_message = "Provide a public SSH key and a restricted source CIDR allowlist for the public CPU pool."
+      condition     = !var.create_public_cpu_pool || local.worker_ssh_public_key != ""
+      error_message = "Generate a shared SSH key pair or upload/paste a public key for both node pools."
     }
     precondition {
       condition     = !var.create_public_cpu_pool || local.create_network || var.cpu_internet_gateway_id != ""
@@ -43,15 +43,14 @@ resource "oci_core_security_list" "public_cpu" {
       source   = ingress_security_rules.value
     }
   }
-  dynamic "ingress_security_rules" {
-    for_each = toset(var.cpu_ssh_access_cidrs)
-    content {
-      protocol = "6"
-      source   = ingress_security_rules.value
-      tcp_options {
-        min = 22
-        max = 22
-      }
+  ingress_security_rules {
+    protocol    = "6"
+    source      = "0.0.0.0/0"
+    source_type = "CIDR_BLOCK"
+    stateless   = false
+    tcp_options {
+      min = 22
+      max = 22
     }
   }
   ingress_security_rules {
@@ -107,7 +106,7 @@ resource "oci_containerengine_node_pool" "public_cpu" {
   name               = "${substr(var.cluster_name, 0, 21)}-public-cpu"
   kubernetes_version = var.kubernetes_version
   node_shape         = var.cpu_node_shape
-  ssh_public_key     = local.cpu_ssh_public_key
+  ssh_public_key     = local.worker_ssh_public_key
   freeform_tags      = var.freeform_tags
   node_metadata = {
     user_data                      = base64encode(local.cloud_init)

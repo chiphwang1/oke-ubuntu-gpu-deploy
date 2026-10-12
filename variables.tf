@@ -344,20 +344,6 @@ variable "cpu_internet_gateway_id" {
   default     = ""
   description = "Existing VCN internet gateway used by the CPU public subnet. Not needed with new infrastructure."
 }
-variable "cpu_ssh_public_key" {
-  type        = string
-  default     = ""
-  description = "SSH public key for the additional CPU diagnostic pool."
-}
-variable "cpu_ssh_access_cidrs" {
-  type        = list(string)
-  default     = []
-  description = "Restricted source CIDRs allowed to SSH to public CPU workers."
-  validation {
-    condition     = alltrue([for c in var.cpu_ssh_access_cidrs : can(cidrnetmask(c)) && try(tonumber(split("/", c)[1]) >= 24, false)])
-    error_message = "Use valid IPv4 source CIDRs of /24 or narrower; prefer your workstation /32."
-  }
-}
 
 variable "existing_pod_subnet_id" {
   type        = string
@@ -370,13 +356,12 @@ variable "customize_node_labels" {
   description = "Show the optional node label editor in ORM."
 }
 
-variable "generate_ssh_key" {
-  type        = bool
-  default     = false
-  description = "Generate an RSA worker SSH key pair during Apply. The private key is stored in Terraform state."
-}
-variable "generate_cpu_ssh_key" {
-  type        = bool
-  default     = false
-  description = "Generate a separate RSA CPU-worker SSH key pair during Apply. The private key is stored in Terraform state."
+variable "ssh_key_source" {
+  type        = string
+  default     = "existing"
+  description = "One shared SSH key for GPU and CPU workers: generate a pair during Apply, or upload/paste an existing public key."
+  validation {
+    condition     = contains(["generate", "existing"], var.ssh_key_source)
+    error_message = "Choose generate or existing for the shared SSH key."
+  }
 }

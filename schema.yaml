@@ -2,7 +2,7 @@
   "title": "Ubuntu GPU certification on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "locale": "en",
   "variableGroups": [
     {
@@ -47,6 +47,13 @@
       ]
     },
     {
+      "title": "SSH access \u2014 GPU and CPU workers",
+      "variables": [
+        "ssh_key_source",
+        "ssh_public_key"
+      ]
+    },
+    {
       "title": "Workers",
       "variables": [
         "node_pool_name",
@@ -58,8 +65,6 @@
         "node_count",
         "fault_domains",
         "boot_volume_size_gbs",
-        "generate_ssh_key",
-        "ssh_public_key",
         "customize_node_labels",
         "node_labels",
         "node_ocpus",
@@ -82,10 +87,7 @@
         "cpu_node_count",
         "cpu_availability_domain",
         "cpu_subnet_cidr",
-        "cpu_internet_gateway_id",
-        "generate_cpu_ssh_key",
-        "cpu_ssh_public_key",
-        "cpu_ssh_access_cidrs"
+        "cpu_internet_gateway_id"
       ]
     }
   ],
@@ -380,8 +382,8 @@
       "default": 100
     },
     "ssh_public_key": {
-      "title": "Worker SSH public key",
-      "description": "Choose an existing .pub file or paste your public key. Keep the matching private key on your computer.",
+      "title": "Shared worker SSH public key",
+      "description": "Upload or paste one public key for both GPU and CPU node pools. Keep the matching private key on your computer.",
       "type": "oci:core:ssh:publickey",
       "required": false,
       "default": "",
@@ -389,8 +391,9 @@
         "allowMultiple": false
       },
       "visible": {
-        "not": [
-          "${generate_ssh_key}"
+        "eq": [
+          "${ssh_key_source}",
+          "existing"
         ]
       }
     },
@@ -548,26 +551,6 @@
       "required": true,
       "description": "Used only for the public CPU subnet in a reused VCN. New infrastructure creates its internet gateway automatically."
     },
-    "cpu_ssh_public_key": {
-      "title": "CPU SSH public key",
-      "type": "oci:core:ssh:publickey",
-      "default": "",
-      "visible": {
-        "and": [
-          "${create_public_cpu_pool}",
-          {
-            "not": [
-              "${generate_cpu_ssh_key}"
-            ]
-          }
-        ]
-      },
-      "additionalProps": {
-        "allowMultiple": false
-      },
-      "description": "Choose an existing .pub file or paste your public key. Keep the matching private key on your computer.",
-      "required": false
-    },
     "cpu_availability_domain": {
       "title": "CPU availability domain",
       "type": "oci:identity:availabilitydomain:name",
@@ -576,15 +559,6 @@
       "dependsOn": {
         "compartmentId": "${compartment_ocid}"
       }
-    },
-    "cpu_ssh_access_cidrs": {
-      "title": "External CPU SSH source CIDRs (prefer /32)",
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "default": [],
-      "visible": "${create_public_cpu_pool}"
     },
     "map_string_value": {
       "type": "string",
@@ -607,20 +581,17 @@
       }
     },
     "availability_domains": {
-      "type": "list",
-      "valueType": "worker_ad_choice",
-      "title": "Availability domains",
-      "description": "Add one or more availability domains from the dropdown. Use Add item for another AD. The first selection is also used for the automatic image builder.",
-      "required": true
-    },
-    "worker_ad_choice": {
       "type": "oci:identity:availabilitydomain:name",
-      "title": "Availability domain",
-      "visible": false,
+      "title": "Availability domains",
+      "description": "Select one or more availability domains.",
+      "required": true,
       "dependsOn": {
         "compartmentId": "${compartment_ocid}"
       },
-      "required": true
+      "allowMultiple": true,
+      "additionalProps": {
+        "allowMultiple": true
+      }
     },
     "existing_pod_subnet_id": {
       "title": "Existing Pod Subnet",
@@ -650,32 +621,23 @@
       "required": false,
       "description": "Optional. Enable only if you want additional Kubernetes node labels."
     },
-    "generate_ssh_key": {
-      "type": "boolean",
-      "title": "Generate worker SSH key pair",
-      "default": false,
-      "required": false,
-      "description": "Generate during Apply. Download afterward using scripts/download_ssh_key.py, or save the private key from Application information. The private key is stored in Terraform state."
-    },
-    "generate_cpu_ssh_key": {
-      "type": "boolean",
-      "title": "Generate CPU SSH key pair",
-      "default": false,
-      "required": false,
-      "description": "Generate during Apply. Download afterward using scripts/download_ssh_key.py, or save the private key from Application information. The private key is stored in Terraform state.",
-      "visible": "${create_public_cpu_pool}"
+    "ssh_key_source": {
+      "type": "enum",
+      "title": "SSH key option for both node pools",
+      "description": "generate: create one key pair during Apply and download it afterward. existing: upload a .pub file or paste a public key. Both GPU and CPU workers use this same key.",
+      "enum": [
+        "generate",
+        "existing"
+      ],
+      "default": "existing",
+      "required": true
     }
   },
   "informationalText": "New infrastructure uses VCN 10.16.0.0/16: public API 10.16.0.0/24, load balancers 10.16.1.0/24, nodes 10.16.2.0/24 and private VCN-native pods 10.16.4.0/22. TCP 6443 allows all IPv4 sources. The image builder uses VM.Standard.E4.Flex with 1 OCPU and 8 GB RAM automatically.",
   "outputs": {
     "generated_worker_ssh_private_key": {
       "type": "copyableString",
-      "title": "Generated worker private key \u2014 save as a file",
-      "sensitive": true
-    },
-    "generated_cpu_ssh_private_key": {
-      "type": "copyableString",
-      "title": "Generated CPU private key \u2014 save as a file",
+      "title": "Shared GPU and CPU private key \u2014 save as a file",
       "sensitive": true
     }
   }
