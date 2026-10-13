@@ -2,7 +2,7 @@
 
 [![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.9%2Foke-ubuntu-gpu.zip)
 
-Deploy Ubuntu GPU workers on **Enhanced OKE with VCN-native pod networking**, without HPC/RDMA configuration. Create a cluster and networking, reuse a VCN, or add workers to an existing cluster. A public CPU diagnostic pool is optional.
+Deploy Ubuntu GPU workers on **Enhanced OKE with VCN-native pod networking**, without HPC/RDMA configuration. Create a cluster and networking, reuse a VCN, or add workers to an existing cluster. With the default scheduling configuration, provide a CPU node pool for CoreDNS and other system workloads that do not tolerate GPU taints. This stack can create a public CPU pool; an existing suitable CPU pool also satisfies that need.
 
 Only the OKE-managed **NVIDIA GPU Plugin (`NvidiaGpuPlugin`)** is removed. GPU Operator, health/metrics, discovery, and core add-ons retain their existing or OKE-default settings. Driver compatibility and GPU Operator certification require separate validation.
 
@@ -35,13 +35,21 @@ In ORM, choose **Network compartment → VCN → subnets** for reuse. In existin
 | Boot volume / `boot_volume_size_gbs` | `100` GB | At least 50 GB and the image minimum |
 | Native pods / `max_pods_per_node` | `31` | Must fit shape and subnet limits |
 | SSH / `ssh_key_source` | `existing` | Upload/paste a public key, or choose `generate`; both pools share it |
-| Public CPU pool / `create_public_cpu_pool` | `false` | Available only when this stack creates the cluster |
+| Public CPU pool / `create_public_cpu_pool` | `false` | Enable for a new cluster unless you provide another eligible pool or configure matching system-pod tolerations; available only when this stack creates the cluster |
 | CPU sizing | E4.Flex; 2 OCPUs; 16 GB; 1 node | Configurable shape, size, count, and AD; AD defaults to the first GPU AD |
 | Labels and tags | Custom labels off; purpose tag on | Optional maps; turn off **Add resource tags** for no freeform tags |
 
 See [variables.tf](variables.tf) for all CLI inputs and [schema.yaml](schema.yaml) for ORM visibility. GPU and CPU shape dropdowns query OCI for the selected compartment and region; they do not guarantee capacity in the selected ADs.
 
 The automatic image builder uses `VM.Standard.E4.Flex`, 1 OCPU, and 8 GB RAM in the first selected GPU AD. Its stopped VM and boot volume remain after image capture. Worker cloud-init installs Oracle's Ubuntu OKE node package; GPU bootstrap first configures NVIDIA's signed APT repository.
+
+### CPU capacity for system workloads
+
+OKE GPU nodes carry the taint `nvidia.com/gpu=present:NoSchedule`. The default CoreDNS and `kube-dns-autoscaler` workloads do not tolerate it, so they cannot schedule on those GPU nodes. Disabling `NvidiaGpuPlugin` does not remove the taint. Other components, such as CNI, kube-proxy, and CSI node agents, have tolerations and can run on GPU nodes. [Oracle documents the CoreDNS requirement for GPU-only clusters](https://docs.oracle.com/en/learn/deploy-vllm-production-stack-oke/).
+
+For `new_infrastructure` or `existing_vcn`, enable **Add public CPU pool** unless you separately provide eligible worker capacity or configure matching tolerations for affected system workloads. For `existing_cluster`, ensure that suitable capacity or matching system-pod tolerations already exist; this stack cannot add its CPU pool in that mode. The Terraform default remains `create_public_cpu_pool = false`, and the stack does not configure DNS tolerations. A GPU-only deployment can therefore have Ready nodes while DNS pods remain Pending.
+
+CPU nodes do **not** need public IPs to host system workloads. The pool created by this stack is public for SSH convenience; a suitable private CPU pool works as well. Its role includes essential system workloads, not just diagnostics.
 
 ### Network defaults
 
@@ -52,7 +60,7 @@ ORM hides CIDR fields. New infrastructure uses VCN `10.16.0.0/16` and Kubernetes
 | API endpoint | `10.16.0.0/24` | Public; TCP 6443 from `0.0.0.0/0` |
 | Load balancers | `10.16.1.0/24` | Private |
 | GPU workers | `10.16.2.0/24` | Private; SSH from VCN CIDRs |
-| Optional CPU workers | `10.16.3.0/24` | Public; TCP 22 from `0.0.0.0/0` |
+| CPU workers (when enabled) | `10.16.3.0/24` | Public; TCP 22 from `0.0.0.0/0` |
 | Native pods | `10.16.4.0/22` | Private |
 
 All selected stack subnets also allow all protocols from `10.0.0.0/8`; routing and host firewalls still apply. Kubernetes authentication protects the API. Existing-cluster mode retains its endpoint rules. For a public CPU pool in an existing VCN, supply `cpu_internet_gateway_id` and ensure the CPU CIDR is unused and inside that VCN; new infrastructure creates its gateway automatically. CLI users can override `cpu_subnet_cidr` when needed.
@@ -65,7 +73,7 @@ Choose one deployment method and keep its Terraform state with that deployment.
 
 1. Sign in to OCI and select the intended region, then click **Deploy to Oracle Cloud** above.
 2. Confirm the configuration source, stack name, and compartment. Use Terraform **1.5.x** in Resource Manager, then select **Next**.
-3. Complete the configuration form. Keep ORM's `InstancePrincipal` authentication. Select the GPU shape, ADs, and shared SSH-key option.
+3. Complete the configuration form. Keep ORM's `InstancePrincipal` authentication. Select the GPU shape, ADs, and shared SSH-key option. For a new cluster, enable **Add public CPU pool** unless you have arranged another system-workload scheduling option as described above.
 4. On Review, clear **Run apply** and create the stack.
 5. Run **Plan**, review the job's changes, then run **Apply** using that plan. Check the job log and outputs when it finishes.
 
@@ -115,7 +123,7 @@ node_count             = 1
 ubuntu_version         = "24.04"
 kubernetes_version     = "v1.36.4"
 ssh_key_source         = "generate"
-create_public_cpu_pool = false
+create_public_cpu_pool = true
 ```
 
 To supply your own key, set `ssh_key_source = "existing"` and `ssh_public_key = "ssh-ed25519 ..."` with the full contents of your `.pub` file. For API-key authentication, configure an OCI profile and use `auth = "APIKey"`, its `config_file_profile`, and `OCI_CLI_AUTH=api_key` instead. Renew an expired session before continuing.
@@ -152,7 +160,7 @@ The helper uses your OCI profile, saves the key with mode 600, removes temporary
 
 Generated private keys are stored in Terraform state; anyone with state access can retrieve them. ORM generates keys during Apply, without a browser-side download widget.
 
-Use `ubuntu` as the SSH user. Find CPU public and GPU private IPs in **OKE → Cluster → Node pools → Nodes**. GPU workers require a route into the VCN; the optional CPU worker can be a jump host using the same key:
+Use `ubuntu` as the SSH user. Find CPU public and GPU private IPs in **OKE → Cluster → Node pools → Nodes**. GPU workers require a route into the VCN; a public CPU worker can also be a jump host using the same key:
 
 ```bash
 CPU_PUBLIC_IP='<cpu-public-ip>'
