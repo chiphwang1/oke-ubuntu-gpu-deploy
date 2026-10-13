@@ -1,6 +1,6 @@
 # Ubuntu GPU certification on OKE
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.5%2Foke-ubuntu-gpu.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.6%2Foke-ubuntu-gpu.zip)
 
 The button loads the release ZIP into OCI Resource Manager. The package includes Terraform files and `schema.yaml` at its root. After accepting the configuration and selecting **Next**, Resource Manager displays the schema-driven configuration form.
 
@@ -41,3 +41,7 @@ The existing internet gateway field appears only when adding the public CPU pool
 The Deploy button no longer forces Ashburn. Region defaults to the current Console region and remains an editable dropdown. ORM does not resolve a tenancy-home-region schema default; open the Console in the home region before launching the button to use that default. Use the intended region in the Console before selecting regional resources.
 
 Upgrading from v1.0.4: replace `generate_ssh_key` / `generate_cpu_ssh_key` with `ssh_key_source = "generate"` or `"existing"`, and use `ssh_public_key` for both pools. To retain an existing generated worker key, select `generate`. Separate CPU-key inputs and `cpu_ssh_access_cidrs` were removed; CPU workers now share the worker key. Review Plan before Apply because changing a node pool SSH key can replace nodes.
+
+Release v1.0.6 fixes region prepopulation: both the schema expression default and the Terraform region default are omitted so ORM fills the current Console region. Local Terraform users must set `region` explicitly, as shown in the example inputs.
+
+Availability-domain choices use a persistent enum multi-select (`AD-1`, `AD-2`, `AD-3`) because ORM's dynamic AD control drops array selections on save. Terraform resolves these to full tenancy-specific names in the deployment region. In single-AD regions, choose only `AD-1`; Plan rejects unavailable choices. CLI input also accepts full AD names.

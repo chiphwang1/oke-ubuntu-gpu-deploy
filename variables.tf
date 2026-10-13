@@ -11,7 +11,6 @@ variable "compartment_ocid" {
 variable "region" {
   type        = string
   description = "OCI deployment region."
-  default     = "us-ashburn-1"
 }
 
 variable "auth" {

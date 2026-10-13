@@ -2,7 +2,7 @@
   "title": "Ubuntu GPU certification on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "locale": "en",
   "variableGroups": [
     {
@@ -107,10 +107,9 @@
     },
     "region": {
       "title": "Region",
-      "description": "OCI deployment region.",
+      "description": "Defaults to the current OCI Console region; select another region if needed.",
       "type": "oci:identity:region:name",
-      "required": true,
-      "default": "${session.region}"
+      "required": true
     },
     "auth": {
       "title": "Auth",
@@ -581,13 +580,15 @@
       }
     },
     "availability_domains": {
-      "type": "oci:identity:availabilitydomain:name",
+      "type": "enum",
       "title": "Availability domains",
-      "description": "Select one or more availability domains.",
+      "description": "Select AD-1, AD-2, or AD-3. Terraform resolves the full tenancy-specific names. Single-AD regions support AD-1 only; Plan rejects unavailable ADs.",
       "required": true,
-      "dependsOn": {
-        "compartmentId": "${compartment_ocid}"
-      },
+      "enum": [
+        "AD-1",
+        "AD-2",
+        "AD-3"
+      ],
       "allowMultiple": true,
       "additionalProps": {
         "allowMultiple": true

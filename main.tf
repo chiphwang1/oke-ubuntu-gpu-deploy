@@ -1,16 +1,18 @@
 locals {
-  worker_availability_domains = length(var.availability_domains) > 0 ? var.availability_domains : (var.availability_domain != "" ? [var.availability_domain] : [])
-  primary_worker_ad           = try(local.worker_availability_domains[0], "")
-  create_cluster              = var.deployment_mode != "existing_cluster"
-  create_network              = var.deployment_mode == "new_infrastructure"
-  cluster_id                  = local.create_cluster ? oci_containerengine_cluster.this[0].id : var.existing_cluster_id
-  vcn_id                      = local.create_network ? oci_core_vcn.this[0].id : (local.create_cluster ? var.existing_vcn_id : data.oci_containerengine_cluster.existing[0].vcn_id)
-  worker_subnet_id            = local.create_network ? oci_core_subnet.this["workers"].id : var.existing_worker_subnet_id
-  endpoint_subnet_id          = local.create_network ? oci_core_subnet.this["endpoint"].id : var.existing_endpoint_subnet_id
-  lb_subnet_id                = local.create_network ? oci_core_subnet.this["lb"].id : var.existing_lb_subnet_id
-  pod_subnet_id               = local.create_network ? oci_core_subnet.this["pods"].id : (var.existing_pod_subnet_id != "" ? var.existing_pod_subnet_id : var.existing_worker_subnet_id)
-  ubuntu_codename             = { "22.04" = "jammy", "24.04" = "noble" }[var.ubuntu_version]
-  kubernetes_minor            = join(".", slice(split(".", trimprefix(var.kubernetes_version, "v")), 0, 2))
+  selected_availability_domains = length(var.availability_domains) > 0 ? var.availability_domains : (var.availability_domain != "" ? [var.availability_domain] : [])
+  regional_availability_domains = { for ad in data.oci_identity_availability_domains.workers.availability_domains : try(regex("AD-[0-9]+$", ad.name), ad.name) => ad.name }
+  worker_availability_domains   = [for ad in local.selected_availability_domains : lookup(local.regional_availability_domains, ad, ad)]
+  primary_worker_ad             = try(local.worker_availability_domains[0], "")
+  create_cluster                = var.deployment_mode != "existing_cluster"
+  create_network                = var.deployment_mode == "new_infrastructure"
+  cluster_id                    = local.create_cluster ? oci_containerengine_cluster.this[0].id : var.existing_cluster_id
+  vcn_id                        = local.create_network ? oci_core_vcn.this[0].id : (local.create_cluster ? var.existing_vcn_id : data.oci_containerengine_cluster.existing[0].vcn_id)
+  worker_subnet_id              = local.create_network ? oci_core_subnet.this["workers"].id : var.existing_worker_subnet_id
+  endpoint_subnet_id            = local.create_network ? oci_core_subnet.this["endpoint"].id : var.existing_endpoint_subnet_id
+  lb_subnet_id                  = local.create_network ? oci_core_subnet.this["lb"].id : var.existing_lb_subnet_id
+  pod_subnet_id                 = local.create_network ? oci_core_subnet.this["pods"].id : (var.existing_pod_subnet_id != "" ? var.existing_pod_subnet_id : var.existing_worker_subnet_id)
+  ubuntu_codename               = { "22.04" = "jammy", "24.04" = "noble" }[var.ubuntu_version]
+  kubernetes_minor              = join(".", slice(split(".", trimprefix(var.kubernetes_version, "v")), 0, 2))
   node_packages = { "1.32" = "1.32.10", "1.33" = "1.33.10", "1.34" = "1.34.10", "1.35" = "1.35.2", "1.36" = "1.36.4"
   }
   node_package = "oci-oke-node-all-${lookup(local.node_packages, local.kubernetes_minor, "unsupported")}"
@@ -27,6 +29,9 @@ locals {
   gpu_cloud_init = "#cloud-config\n${yamlencode(merge(local.ubuntu_cloud_config, {
     runcmd = concat([["bash", "-ec", file("${path.module}/scripts/configure_nvidia_repository.sh")]], local.ubuntu_cloud_config.runcmd)
   }))}"
+}
+data "oci_identity_availability_domains" "workers" {
+  compartment_id = var.compartment_ocid
 }
 data "oci_containerengine_cluster" "existing" {
   count      = local.create_cluster ? 0 : 1
@@ -59,6 +64,10 @@ data "external" "network_validation" {
 }
 resource "terraform_data" "validate" {
   lifecycle {
+    precondition {
+      condition     = alltrue([for ad in local.selected_availability_domains : !can(regex("^AD-[0-9]+$", ad)) || contains(keys(local.regional_availability_domains), ad)])
+      error_message = "An availability domain is unavailable in this region. Choose AD-1 in single-AD regions; AD-2 and AD-3 require a three-AD region."
+    }
     precondition {
       condition     = contains(data.oci_containerengine_cluster_option.available.kubernetes_versions, var.kubernetes_version) && contains(keys(local.node_packages), local.kubernetes_minor)
       error_message = "Choose a regional OKE Kubernetes version with an Oracle Ubuntu node package (1.32 through 1.36)."
