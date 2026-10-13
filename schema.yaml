@@ -1,8 +1,8 @@
 {
-  "title": "Ubuntu GPU certification on OKE",
+  "title": "Non HPC Ubuntu Image on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. Only the OKE NVIDIA GPU device-plugin add-on is disabled.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "locale": "en",
   "variableGroups": [
     {

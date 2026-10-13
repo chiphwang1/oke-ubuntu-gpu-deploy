@@ -1,53 +1,180 @@
-# Ubuntu GPU certification on OKE
+# Non HPC Ubuntu Image on OKE
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.8%2Foke-ubuntu-gpu.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.9%2Foke-ubuntu-gpu.zip)
 
-The button loads the release ZIP into OCI Resource Manager. The package includes Terraform files and `schema.yaml` at its root. After accepting the configuration and selecting **Next**, Resource Manager displays the schema-driven configuration form.
+Deploy Ubuntu GPU workers on **Enhanced OKE with VCN-native pod networking**, without HPC/RDMA configuration. Create a cluster and networking, reuse a VCN, or add workers to an existing cluster. A public CPU diagnostic pool is optional.
 
-Select your compartment, region, Ubuntu version, GPU shape, node count and deployment mode. The stack can create infrastructure, reuse existing VCN/subnets, or add workers to an existing Enhanced OKE cluster. VCN-native CNI is configured automatically. An optional public CPU diagnostic pool is available with the same generated or supplied SSH key as the GPU pool and TCP 22 open to `0.0.0.0/0`.
+Only the OKE-managed **NVIDIA GPU Plugin (`NvidiaGpuPlugin`)** is removed. GPU Operator, health/metrics, discovery, and core add-ons retain their existing or OKE-default settings. Driver compatibility and GPU Operator certification require separate validation.
 
-Use Terraform **1.5.x** in Resource Manager and retain `InstancePrincipal` authentication. The deploying identity must already have OCI permissions for the selected resources. On Review, clear **Run apply** to create the stack first, then run Plan and review before Apply. Clicking the button alone does not provision infrastructure.
+[Download ZIP](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/download/v1.0.9/oke-ubuntu-gpu.zip) · [Release notes](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/tag/v1.0.9) · [Stack options](#stack-options) · [Deploy](#deploy) · [SSH and cluster access](#ssh-and-cluster-access)
 
-The stack disables and removes only the OKE-managed NVIDIA GPU Plugin (`NvidiaGpuPlugin`). Other add-ons retain their existing or OKE-default settings. On an existing cluster this affects other GPU workers, so use a dedicated certification cluster. GPU cloud-init installs Oracle's Ubuntu node package and configures NVIDIA's signed APT repository before `oke bootstrap`. Driver compatibility and GPU Operator certification require separate validation.
+## Deployment modes
 
-New infrastructure includes an Enhanced OKE cluster with a public API endpoint. By default, a clean Ubuntu custom image is captured from a CPU builder VM; its stopped VM and boot volume are retained. GPU workers use private addresses. An existing custom image can also be selected.
+| `deployment_mode` | Creates | Required existing resources |
+| --- | --- | --- |
+| `new_infrastructure` (default) | VCN, gateways, subnets, cluster, GPU pool | None |
+| `existing_vcn` | Cluster and GPU pool; public CPU subnet/pool if enabled | VCN; worker, pod, API endpoint, and load-balancer subnets |
+| `existing_cluster` | GPU pool | Enhanced cluster with matching Kubernetes version and CNI; private worker and pod subnets in its VCN |
 
-No Terraform state, credentials, customer-specific variables, or live test records are included in this deployment package. Keep deployed resources and state after testing; cleanup is a separate explicit operation.
+In ORM, choose **Network compartment → VCN → subnets** for reuse. In existing-cluster mode, select that cluster's VCN for subnet discovery. Use regional worker/pod subnets for multiple ADs. Reused subnets need working routes, OKE connectivity, outbound access for bootstrap, and a free security-list association slot. The stack adds a shared security list allowing all protocols from `10.0.0.0/8`, preserving existing associations; this affects other resources in those selected subnets.
 
-The node shape is required. Under **GPU node pool**, select one or more **GPU availability domains** using the required multi-select dropdown. **GPU fault domains** appears immediately below it. Custom node labels are optional and their editor is disabled by default. The automatic image builder uses VM.Standard.E4.Flex, 1 OCPU and 8 GB RAM in the first selected worker AD, without customer configuration fields.
+## Stack options
 
-For existing networking, choose Network compartment, VCN, and subnets in that order. Use regional worker subnets for multiple ADs. Resource discovery uses the current Console region.
+| Option / Terraform input | Default | Selection or requirement |
+| --- | --- | --- |
+| Compartment / `compartment_ocid` | Select | Required; deployer needs existing OCI permissions. The stack creates no IAM policies. |
+| Region / `region` | Current Console region in ORM | Editable dropdown; open the Console in the intended region before resource selection. Local Terraform must supply it. |
+| Cluster name / `cluster_name` | `oke-ubuntu-gpu` | Prefix for new resources |
+| Cluster type and CNI | Enhanced; VCN-native | ORM keeps these fixed. Enhanced is required to disable the GPU Plugin through OKE add-on management. |
+| Kubernetes / `kubernetes_version` | `v1.36.4` | Must be available regionally and have a mapped Ubuntu node package; must match a reused cluster |
+| GPU shape / `node_shape` | Select | Required NVIDIA `VM.GPU` or `BM.GPU` shape; image compatibility, AD capacity, and quota still apply |
+| GPU placement / `availability_domains`, `fault_domains` | Select ADs; OKE chooses FDs | One or more ADs required; optional multiple FDs. Use only `AD-1` in single-AD regions. CLI also accepts full AD names. |
+| GPU count / `node_count` | `1` | At least one node |
+| Ubuntu / `ubuntu_version` | `24.04` | `22.04` or `24.04` |
+| Image / `image_mode` | `create` | Capture a clean custom image, or select `existing` and supply `ubuntu_image_id` |
+| Boot volume / `boot_volume_size_gbs` | `100` GB | At least 50 GB and the image minimum |
+| Native pods / `max_pods_per_node` | `31` | Must fit shape and subnet limits |
+| SSH / `ssh_key_source` | `existing` | Upload/paste a public key, or choose `generate`; both pools share it |
+| Public CPU pool / `create_public_cpu_pool` | `false` | Available only when this stack creates the cluster |
+| CPU sizing | E4.Flex; 2 OCPUs; 16 GB; 1 node | Configurable shape, size, count, and AD; AD defaults to the first GPU AD |
+| Labels and tags | Custom labels off; purpose tag on | Optional maps; turn off **Add resource tags** for no freeform tags |
 
-Workers permit SSH from every IPv4 subnet in their VCN, with a supplied public key. All selected stack subnets also allow all inbound protocols from 10.0.0.0/8. Public CPU SSH allows TCP 22 from `0.0.0.0/0`; no source-CIDR field is required. New cluster endpoints allow TCP 6443 from 0.0.0.0/0; public endpoints remain subject to Kubernetes authentication. Existing-cluster mode retains that cluster's endpoint rules.
+See [variables.tf](variables.tf) for all CLI inputs and [schema.yaml](schema.yaml) for ORM visibility. GPU and CPU shape dropdowns query OCI for the selected compartment and region; they do not guarantee capacity in the selected ADs.
 
-The automatic network layout is VCN 10.16.0.0/16, public API 10.16.0.0/24, private load balancers 10.16.1.0/24, private nodes 10.16.2.0/24, and private native pods 10.16.4.0/22. The optional public CPU subnet is 10.16.3.0/24. CIDR fields are hidden in ORM. Existing-network mode provides separate worker and pod subnet dropdowns.
+The automatic image builder uses `VM.Standard.E4.Flex`, 1 OCPU, and 8 GB RAM in the first selected GPU AD. Its stopped VM and boot volume remain after image capture. Worker cloud-init installs Oracle's Ubuntu OKE node package; GPU bootstrap first configures NVIDIA's signed APT repository.
 
-These defaults apply to new deployments. Review Terraform Plan before updating an older stack: changing subnet CIDRs can replace networking and nodes. Existing deployed resources are not modified merely by publishing this package.
+### Network defaults
 
-### SSH key options
+ORM hides CIDR fields. New infrastructure uses VCN `10.16.0.0/16` and Kubernetes services `10.96.0.0/16`.
 
-In **SSH access — GPU and CPU workers**, choose **generate** for one RSA-4096 pair created during Apply, or **existing** to upload a `.pub` file with **Choose SSH key file** or use **Paste SSH key**. This section is always visible. Both GPU and CPU workers use this same key; keep the corresponding private key on your computer.
+| Subnet | CIDR | Visibility |
+| --- | --- | --- |
+| API endpoint | `10.16.0.0/24` | Public; TCP 6443 from `0.0.0.0/0` |
+| Load balancers | `10.16.1.0/24` | Private |
+| GPU workers | `10.16.2.0/24` | Private; SSH from VCN CIDRs |
+| Optional CPU workers | `10.16.3.0/24` | Public; TCP 22 from `0.0.0.0/0` |
+| Native pods | `10.16.4.0/22` | Private |
 
-Generated private keys are stored in Terraform state and exposed as sensitive outputs in **Application information**. They become available after Apply. ORM supports copying the output; it does not provide a browser-side key-generation/download widget. Save the copied key to a file with mode 600, or use the included download helper:
+All selected stack subnets also allow all protocols from `10.0.0.0/8`; routing and host firewalls still apply. Kubernetes authentication protects the API. Existing-cluster mode retains its endpoint rules. For a public CPU pool in an existing VCN, supply `cpu_internet_gateway_id` and ensure the CPU CIDR is unused and inside that VCN; new infrastructure creates its gateway automatically. CLI users can override `cpu_subnet_cidr` when needed.
+
+## Deploy
+
+Choose one deployment method and keep its Terraform state with that deployment.
+
+### 1. Deploy to Oracle button
+
+1. Sign in to OCI and select the intended region, then click **Deploy to Oracle Cloud** above.
+2. Confirm the configuration source, stack name, and compartment. Use Terraform **1.5.x** in Resource Manager, then select **Next**.
+3. Complete the configuration form. Keep ORM's `InstancePrincipal` authentication. Select the GPU shape, ADs, and shared SSH-key option.
+4. On Review, clear **Run apply** and create the stack.
+5. Run **Plan**, review the job's changes, then run **Apply** using that plan. Check the job log and outputs when it finishes.
+
+### 2. Download ZIP and upload through the Console
+
+1. Open the [v1.0.9 release](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/tag/v1.0.9). Under **Assets**, download **oke-ubuntu-gpu.zip**. Choose this asset rather than GitHub's source-code archives.
+2. In the OCI Console, open **Resource Manager → Stacks**, choose the region and compartment, and select **Create stack**.
+3. Select **My configuration → .Zip file**, then **Browse** and upload the ZIP without extracting it. Terraform files and `schema.yaml` are at the ZIP root.
+4. Choose Terraform **1.5.x**, select **Next**, and complete the same configuration, Review, Plan, and Apply steps above.
+
+See Oracle's [ZIP upload instructions](https://docs.oracle.com/en-us/iaas/Content/ResourceManager/Tasks/create-stack-local.htm). Existing stacks keep their uploaded configuration: use **Edit stack** to upload the new ZIP, review variables, and run a fresh Plan before Apply.
+
+### 3. Local Terraform
+
+Install Terraform **>= 1.5, < 2.0**, OCI CLI, Python 3, and `unzip`; install `kubectl` for cluster access. The deploying identity needs permissions for OKE, selected networking, Compute/images, and add-on management.
+
+Download and extract the same release:
 
 ```bash
-python3 scripts/download_ssh_key.py --job-id <apply-job-ocid> --region <region> --pool gpu --output ~/.ssh/oke_gpu
+curl -fL -o oke-ubuntu-gpu.zip \
+  https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/download/v1.0.9/oke-ubuntu-gpu.zip
+unzip oke-ubuntu-gpu.zip -d oke-ubuntu-gpu
+cd oke-ubuntu-gpu
 ```
 
-The downloaded key connects to both GPU and CPU workers. `--pool cpu` remains a compatibility alias when the CPU pool is enabled. Optional `--profile` and `--auth` select OCI CLI authentication. The helper downloads job state into a private temporary directory, saves only the requested key with mode 600, removes temporary state and refuses to overwrite existing files. Users with Terraform-state access can retrieve generated keys; supplied-key mode stores only a public key.
+For browser-based [OCI session authentication](https://docs.oracle.com/en-us/iaas/tools/oci-cli/latest/oci_cli_docs/cmdref/session/authenticate.html), create a profile and use it for CLI commands:
 
-The existing internet gateway field appears only when adding the public CPU pool to an **existing VCN**. New infrastructure automatically creates its internet gateway. For reused subnets, the stack adds a shared 10/8 security list while preserving their existing list associations. This affects all resources in the selected API, worker, pod and LB subnets; unrelated VCN subnets are untouched. A free security-list association slot is required. Explicit future cleanup detaches only this stack's shared list.
+```bash
+oci session authenticate --region us-ashburn-1 --profile-name oke-local
+export OCI_CLI_PROFILE=oke-local
+export OCI_CLI_AUTH=security_token
+```
 
-The Deploy button no longer forces Ashburn. Region defaults to the current Console region and remains an editable dropdown. ORM does not resolve a tenancy-home-region schema default; open the Console in the home region before launching the button to use that default. Use the intended region in the Console before selecting regional resources.
+Create `terraform.tfvars`, replacing the OCIDs and choosing a region/AD with capacity for your shape:
 
-Upgrading from v1.0.4: replace `generate_ssh_key` / `generate_cpu_ssh_key` with `ssh_key_source = "generate"` or `"existing"`, and use `ssh_public_key` for both pools. To retain an existing generated worker key, select `generate`. Separate CPU-key inputs and `cpu_ssh_access_cidrs` were removed; CPU workers now share the worker key. Review Plan before Apply because changing a node pool SSH key can replace nodes.
+```hcl
+tenancy_ocid        = "ocid1.tenancy.oc1..REPLACE_ME"
+compartment_ocid    = "ocid1.compartment.oc1..REPLACE_ME"
+region              = "us-ashburn-1"
+auth                = "SecurityToken"
+config_file_profile = "oke-local"
 
-Release v1.0.7 fixes region prepopulation: both the schema expression default and the Terraform region default are omitted so ORM fills the current Console region. Local Terraform users must set `region` explicitly, as shown in the example inputs.
+deployment_mode        = "new_infrastructure"
+availability_domains   = ["AD-1"]
+node_shape             = "VM.GPU.A10.1"
+node_count             = 1
+ubuntu_version         = "24.04"
+kubernetes_version     = "v1.36.4"
+ssh_key_source         = "generate"
+create_public_cpu_pool = false
+```
 
-Availability-domain choices use a persistent enum multi-select (`AD-1`, `AD-2`, `AD-3`) because ORM's dynamic AD control drops array selections on save. Terraform resolves these to full tenancy-specific names in the deployment region. In single-AD regions, choose only `AD-1`; Plan rejects unavailable choices. CLI input also accepts full AD names.
+To supply your own key, set `ssh_key_source = "existing"` and `ssh_public_key = "ssh-ed25519 ..."` with the full contents of your `.pub` file. For API-key authentication, configure an OCI profile and use `auth = "APIKey"`, its `config_file_profile`, and `OCI_CLI_AUTH=api_key` instead. Renew an expired session before continuing.
 
-Release v1.0.7 aligns freeform-tag key/value fields. Turn off **Add resource tags** to use no freeform tags. The GPU AD selector is near the top of **GPU node pool**.
+```bash
+terraform init
+terraform validate
+terraform plan -out=tfplan
+terraform show tfplan
+terraform apply tfplan
+terraform output
+```
 
-The add-on guard now targets only `NvidiaGpuPlugin`; it no longer removes the GPU Operator, health/metrics, or Node Feature Discovery add-ons. It does not reinstall add-ons removed by earlier releases. Existing ORM stacks retain their uploaded configuration until updated with the new ZIP.
+Keep `terraform.tfvars`, plans, state, and private keys out of Git. Resources and state remain after Apply; cleanup is a separate operation. Use the existing ORM state when managing an ORM deployment rather than starting a second local state for the same resources.
 
-Release v1.0.8 requires a public key in the ORM form whenever **existing** is selected. Select **generate** to create one shared key pair during Apply, or upload/paste a public key before proceeding. The Terraform guard also rejects missing or whitespace-only keys for the public CPU pool.
+## SSH and cluster access
+
+**Existing key:** upload a `.pub` file or use **Paste SSH key** in ORM. A nonblank key is required when `existing` is selected. Keep its matching private key locally.
+
+**Generated key:** one RSA-4096 pair is created during Apply for both pools. After a successful Apply, copy `generated_worker_ssh_private_key` from ORM's **Application information**, or extract the ZIP locally and run:
+
+```bash
+python3 scripts/download_ssh_key.py \
+  --job-id '<successful-apply-job-ocid>' --region us-ashburn-1 \
+  --profile oke-local --auth security_token \
+  --pool gpu --output ~/.ssh/oke_workers
+```
+
+The helper uses your OCI profile, saves the key with mode 600, removes temporary state, and refuses to overwrite a file. For local Terraform, save it to a new file:
+
+```bash
+(umask 077; set -C; terraform output -raw generated_worker_ssh_private_key > ~/.ssh/oke_workers)
+```
+
+Generated private keys are stored in Terraform state; anyone with state access can retrieve them. ORM generates keys during Apply, without a browser-side download widget.
+
+Use `ubuntu` as the SSH user. Find CPU public and GPU private IPs in **OKE → Cluster → Node pools → Nodes**. GPU workers require a route into the VCN; the optional CPU worker can be a jump host using the same key:
+
+```bash
+CPU_PUBLIC_IP='<cpu-public-ip>'
+GPU_PRIVATE_IP='<gpu-private-ip>'
+ssh -i ~/.ssh/oke_workers ubuntu@"$CPU_PUBLIC_IP"
+ssh -i ~/.ssh/oke_workers \
+  -o "ProxyCommand=ssh -i ~/.ssh/oke_workers -W %h:%p ubuntu@$CPU_PUBLIC_IP" \
+  ubuntu@"$GPU_PRIVATE_IP"
+```
+
+To use `kubectl`, authenticate OCI CLI with the appropriate profile as above, then copy the stack's `kubeconfig_command` output and run it. It writes `./kubeconfig`. For an existing cluster with a public endpoint, change its endpoint argument to `PUBLIC_ENDPOINT`; the generated command defaults to the private endpoint for reused clusters.
+
+```bash
+kubectl --kubeconfig ./kubeconfig get nodes
+```
+
+Explicit `--kubeconfig` avoids an old `KUBECONFIG` environment variable overriding the file you just created. If using `~/.kube/config`, unset an obsolete `KUBECONFIG` export and remove it from your shell startup file.
+
+## GPU Plugin behavior and upgrades
+
+During initial Apply, the stack removes `NvidiaGpuPlugin` **after the cluster is available and before either node pool is created**, waits for removal, then checks again after the pools are created. The final check runs on every Apply; it is not continuous monitoring. API errors or failed removal stop Apply. On an existing cluster, removal is cluster-wide and can affect other GPU pools.
+
+Enhanced OKE remains required: Basic clusters do not support disabling specific add-ons through [OKE add-on management](https://docs.oracle.com/en-us/iaas/Content/ContEng/Tasks/contengcomparingenhancedwithbasicclusters_topic.htm).
+
+Before upgrading, review Plan for replacements, particularly when changing CIDRs or worker SSH keys. Releases before v1.0.7 removed additional GPU add-ons; newer releases leave them alone but do not reinstall them. When upgrading from v1.0.4, replace `generate_ssh_key` / `generate_cpu_ssh_key` with `ssh_key_source` and share `ssh_public_key` across both pools. Keep `generate` selected to retain a generated worker key. Separate CPU-key and CPU SSH-CIDR inputs were removed.
