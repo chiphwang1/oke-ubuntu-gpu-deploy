@@ -2,7 +2,7 @@
   "title": "Ubuntu GPU certification on OKE",
   "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. Only the OKE NVIDIA GPU device-plugin add-on is disabled.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "locale": "en",
   "variableGroups": [
     {
@@ -383,9 +383,9 @@
     },
     "ssh_public_key": {
       "title": "Shared worker SSH public key",
-      "description": "Upload or paste one public key for both GPU and CPU node pools. Keep the matching private key on your computer.",
+      "description": "Required when using an existing key. Upload or paste one SSH public key for both node pools, or select generate above. Keep the matching private key on your computer.",
       "type": "oci:core:ssh:publickey",
-      "required": false,
+      "required": true,
       "default": "",
       "additionalProps": {
         "allowMultiple": false
@@ -395,7 +395,8 @@
           "${ssh_key_source}",
           "existing"
         ]
-      }
+      },
+      "pattern": "^\\s*\\S[\\s\\S]*$"
     },
     "node_labels": {
       "title": "Node Labels",

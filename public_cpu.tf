@@ -11,8 +11,8 @@ resource "terraform_data" "validate_public_cpu" {
       error_message = "Public CPU diagnostics requires a cluster managed by this stack and VCN-native CNI."
     }
     precondition {
-      condition     = !var.create_public_cpu_pool || local.worker_ssh_public_key != ""
-      error_message = "Generate a shared SSH key pair or upload/paste a public key for both node pools."
+      condition     = !var.create_public_cpu_pool || var.ssh_key_source == "generate" || trimspace(var.ssh_public_key) != ""
+      error_message = "The public CPU pool requires SSH access. Set ssh_key_source to generate, or select existing and upload/paste a non-empty ssh_public_key shared by both node pools."
     }
     precondition {
       condition     = !var.create_public_cpu_pool || local.create_network || var.cpu_internet_gateway_id != ""

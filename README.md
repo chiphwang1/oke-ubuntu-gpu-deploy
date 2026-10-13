@@ -1,6 +1,6 @@
 # Ubuntu GPU certification on OKE
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.7%2Foke-ubuntu-gpu.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.8%2Foke-ubuntu-gpu.zip)
 
 The button loads the release ZIP into OCI Resource Manager. The package includes Terraform files and `schema.yaml` at its root. After accepting the configuration and selecting **Next**, Resource Manager displays the schema-driven configuration form.
 
@@ -49,3 +49,5 @@ Availability-domain choices use a persistent enum multi-select (`AD-1`, `AD-2`, 
 Release v1.0.7 aligns freeform-tag key/value fields. Turn off **Add resource tags** to use no freeform tags. The GPU AD selector is near the top of **GPU node pool**.
 
 The add-on guard now targets only `NvidiaGpuPlugin`; it no longer removes the GPU Operator, health/metrics, or Node Feature Discovery add-ons. It does not reinstall add-ons removed by earlier releases. Existing ORM stacks retain their uploaded configuration until updated with the new ZIP.
+
+Release v1.0.8 requires a public key in the ORM form whenever **existing** is selected. Select **generate** to create one shared key pair during Apply, or upload/paste a public key before proceeding. The Terraform guard also rejects missing or whitespace-only keys for the public CPU pool.
