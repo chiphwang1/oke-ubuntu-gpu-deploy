@@ -28,7 +28,12 @@ locals {
   }
   cloud_init = "#cloud-config\n${yamlencode(local.ubuntu_cloud_config)}"
   gpu_cloud_init = "#cloud-config\n${yamlencode(merge(local.ubuntu_cloud_config, {
-    runcmd = concat([["bash", "-ec", file("${path.module}/scripts/configure_nvidia_repository.sh")]], local.ubuntu_cloud_config.runcmd)
+    runcmd = [["bash", "-ec", join("\n", [
+      "set -euo pipefail",
+      file("${path.module}/scripts/configure_nvidia_repository.sh"),
+      local.ubuntu_cloud_config.runcmd[0][2],
+      file("${path.module}/scripts/remove_nvidia_toolkit.sh")
+    ])]]
   }))}"
 }
 data "oci_identity_availability_domains" "workers" {

@@ -1,12 +1,12 @@
 # Non HPC Ubuntu Image on OKE
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.9%2Foke-ubuntu-gpu.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.10%2Foke-ubuntu-gpu.zip)
 
 Deploy Ubuntu GPU workers on Enhanced OKE with VCN-native pod networking. The stack creates no HPC/RDMA configuration. Create a cluster and network, reuse a VCN, or add workers to an existing cluster. Include CPU workers for CoreDNS and other system pods unless another pool or matching GPU tolerations already allow them to run.
 
 The stack removes only the OKE-managed NVIDIA GPU Plugin (`NvidiaGpuPlugin`). It leaves GPU Operator, health/metrics, discovery, and core add-ons at their existing or OKE-default settings. Driver compatibility and GPU Operator certification still need separate testing.
 
-[Download ZIP](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/download/v1.0.9/oke-ubuntu-gpu.zip) · [Release notes](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/tag/v1.0.9) · [Stack options](#stack-options) · [Deploy](#deploy) · [SSH and cluster access](#ssh-and-cluster-access)
+[Download ZIP](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/download/v1.0.10/oke-ubuntu-gpu.zip) · [Release notes](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/tag/v1.0.10) · [Stack options](#stack-options) · [Deploy](#deploy) · [SSH and cluster access](#ssh-and-cluster-access)
 
 ## Deployment modes
 
@@ -43,11 +43,21 @@ See [variables.tf](variables.tf) for all CLI inputs and [schema.yaml](schema.yam
 
 The image builder uses `VM.Standard.E4.Flex`, 1 OCPU, and 8 GB RAM in the first selected GPU AD. The stopped builder VM and boot volume remain after image capture. Cloud-init installs Oracle's Ubuntu OKE node package and configures NVIDIA's signed APT repository before GPU bootstrap.
 
+### NVIDIA toolkit cleanup
+
+After successful `oke bootstrap`, GPU cloud-init removes `nvidia-container-toolkit`, `nvidia-container-toolkit-base`, `libnvidia-container1`, and `libnvidia-container-tools` so NVIDIA GPU Operator can manage the toolkit. It waits for CRI-O and kubelet, checks for NVIDIA runtime/hook references, simulates the purge, and refuses to remove any other package. It verifies that all four packages are absent and both services remain active. CPU bootstrap is unchanged.
+
+The cleanup targets CRI-O with `runc`. The corrected sequence passed when rerun on an Ubuntu 24.04 / Kubernetes 1.36.4 / VM.GPU.A10.1 test node. A fresh boot with the corrected script, other versions/shapes, reboot persistence, and GPU Operator workloads still need testing. GPU Operator's toolkit container does not necessarily reinstall these as host APT packages.
+
+Updating pool user data does not run cleanup on existing nodes. Review the Terraform plan and arrange node replacement separately when upgrading. The stack does not remove GPU drivers or install NVIDIA GPU Operator.
+
 ### CPU capacity for system workloads
+
+The CPU pool remains optional (`create_public_cpu_pool = false`), including for new clusters. For a new cluster, enable **Add public CPU pool** unless you will provide another eligible worker pool or configure GPU tolerations for system workloads. Without either, CoreDNS and its autoscaler can remain Pending even when GPU nodes are Ready.
 
 OKE GPU nodes carry the taint `nvidia.com/gpu=present:NoSchedule`. The default CoreDNS and `kube-dns-autoscaler` workloads do not tolerate it, so they cannot schedule on those GPU nodes. Disabling `NvidiaGpuPlugin` does not remove the taint. Other components, such as CNI, kube-proxy, and CSI node agents, have tolerations and can run on GPU nodes. [Oracle documents the CoreDNS requirement for GPU-only clusters](https://docs.oracle.com/en/learn/deploy-vllm-production-stack-oke/).
 
-For `new_infrastructure` or `existing_vcn`, enable **Add public CPU pool** unless another pool or matching tolerations allow system pods to run. In `existing_cluster` mode, you must arrange this separately; the stack cannot add its CPU pool. The default is `create_public_cpu_pool = false`, and the stack adds no DNS tolerations. A GPU-only deployment can have Ready nodes while DNS pods remain Pending.
+The CPU option is available in `new_infrastructure` and `existing_vcn` modes. In `existing_cluster` mode, arrange system-worker capacity separately; the stack cannot add its CPU pool. The stack adds no DNS tolerations.
 
 A private CPU pool can host system workloads. This stack creates a public CPU pool so you can also use it for SSH access and diagnostics.
 
@@ -79,7 +89,7 @@ Use one Terraform state per deployment.
 
 ### 2. Download ZIP and upload through the Console
 
-1. Open the [v1.0.9 release](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/tag/v1.0.9). Under **Assets**, download **oke-ubuntu-gpu.zip**. Choose this asset rather than GitHub's source-code archives.
+1. Open the [v1.0.10 release](https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/tag/v1.0.10). Under **Assets**, download **oke-ubuntu-gpu.zip**. Choose this asset rather than GitHub's source-code archives.
 2. In the OCI Console, open **Resource Manager → Stacks**, choose the region and compartment, and select **Create stack**.
 3. Select **My configuration → .Zip file**, then **Browse** and upload the ZIP without extracting it. Terraform files and `schema.yaml` are at the ZIP root.
 4. Choose Terraform **1.5.x**, select **Next**, and complete the same configuration, Review, Plan, and Apply steps above.
@@ -94,7 +104,7 @@ Download and extract the same release:
 
 ```bash
 curl -fL -o oke-ubuntu-gpu.zip \
-  https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/download/v1.0.9/oke-ubuntu-gpu.zip
+  https://github.com/chiphwang1/oke-ubuntu-gpu-deploy/releases/download/v1.0.10/oke-ubuntu-gpu.zip
 unzip oke-ubuntu-gpu.zip -d oke-ubuntu-gpu
 cd oke-ubuntu-gpu
 ```
