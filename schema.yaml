@@ -1,8 +1,8 @@
 {
   "title": "Ubuntu GPU certification on OKE",
-  "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. GPU add-on removal is enforced; live validation is required.",
+  "description": "Enhanced OKE with non-HPC Ubuntu GPU workers. Only the OKE NVIDIA GPU device-plugin add-on is disabled.",
   "schemaVersion": "1.1.0",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "locale": "en",
   "variableGroups": [
     {
@@ -54,16 +54,16 @@
       ]
     },
     {
-      "title": "Workers",
+      "title": "GPU node pool",
       "variables": [
         "node_pool_name",
+        "availability_domains",
+        "fault_domains",
+        "node_shape",
+        "node_count",
         "ubuntu_version",
         "image_mode",
         "ubuntu_image_id",
-        "availability_domains",
-        "node_shape",
-        "node_count",
-        "fault_domains",
         "boot_volume_size_gbs",
         "customize_node_labels",
         "node_labels",
@@ -74,6 +74,7 @@
     {
       "title": "Tags",
       "variables": [
+        "add_freeform_tags",
         "freeform_tags"
       ]
     },
@@ -360,7 +361,7 @@
     },
     "fault_domains": {
       "type": "enum",
-      "title": "Fault domains",
+      "title": "GPU fault domains",
       "description": "Select one or more fault domains for every selected AD. Leave empty to let OKE choose.",
       "enum": [
         "FAULT-DOMAIN-1",
@@ -445,11 +446,12 @@
     },
     "freeform_tags": {
       "title": "Freeform Tags",
-      "description": "OCI freeform tags on resources created by this stack.",
+      "description": "Add a key and value for each resource tag. Turn off Add resource tags to use no freeform tags.",
       "type": "map",
       "required": false,
       "default": "{\"purpose\": \"nvidia-gpu-operator-certification\"}",
-      "valueType": "map_string_value"
+      "valueType": "freeform_tag_value",
+      "visible": "${add_freeform_tags}"
     },
     "cni_type": {
       "title": "Pod networking",
@@ -581,8 +583,8 @@
     },
     "availability_domains": {
       "type": "enum",
-      "title": "Availability domains",
-      "description": "Select AD-1, AD-2, or AD-3. Terraform resolves the full tenancy-specific names. Single-AD regions support AD-1 only; Plan rejects unavailable ADs.",
+      "title": "GPU availability domains",
+      "description": "Select one or more availability domains for the GPU node pool. Single-AD regions support AD-1 only. The selected GPU shape must be available in every selected AD.",
       "required": true,
       "enum": [
         "AD-1",
@@ -592,7 +594,8 @@
       "allowMultiple": true,
       "additionalProps": {
         "allowMultiple": true
-      }
+      },
+      "visible": true
     },
     "existing_pod_subnet_id": {
       "title": "Existing Pod Subnet",
@@ -632,6 +635,17 @@
       ],
       "default": "existing",
       "required": true
+    },
+    "freeform_tag_value": {
+      "type": "string",
+      "visible": false,
+      "required": true
+    },
+    "add_freeform_tags": {
+      "type": "boolean",
+      "title": "Add resource tags",
+      "default": true,
+      "description": "Turn off to create resources without freeform tags."
     }
   },
   "informationalText": "New infrastructure uses VCN 10.16.0.0/16: public API 10.16.0.0/24, load balancers 10.16.1.0/24, nodes 10.16.2.0/24 and private VCN-native pods 10.16.4.0/22. TCP 6443 allows all IPv4 sources. The image builder uses VM.Standard.E4.Flex with 1 OCPU and 8 GB RAM automatically.",

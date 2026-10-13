@@ -38,7 +38,7 @@ resource "oci_core_instance" "image_source" {
     boot_volume_size_in_gbs = 50
 
   }
-  freeform_tags = var.freeform_tags
+  freeform_tags = local.freeform_tags
   depends_on    = [terraform_data.validate]
 }
 resource "oci_core_image" "ubuntu" {
@@ -46,7 +46,7 @@ resource "oci_core_image" "ubuntu" {
   compartment_id = var.compartment_ocid
   instance_id    = oci_core_instance.image_source[0].id
   display_name   = "${var.cluster_name}-ubuntu-${var.ubuntu_version}-clean"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
 }
 data "oci_core_image" "selected" {
   image_id = local.image_id

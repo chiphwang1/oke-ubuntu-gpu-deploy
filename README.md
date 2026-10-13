@@ -1,6 +1,6 @@
 # Ubuntu GPU certification on OKE
 
-[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.6%2Foke-ubuntu-gpu.zip)
+[![Deploy to Oracle Cloud](https://oci-resourcemanager-plugin.plugins.oci.oraclecloud.com/latest/deploy-to-oracle-cloud.svg)](https://cloud.oracle.com/resourcemanager/stacks/create?zipUrl=https%3A%2F%2Fgithub.com%2Fchiphwang1%2Foke-ubuntu-gpu-deploy%2Freleases%2Fdownload%2Fv1.0.7%2Foke-ubuntu-gpu.zip)
 
 The button loads the release ZIP into OCI Resource Manager. The package includes Terraform files and `schema.yaml` at its root. After accepting the configuration and selecting **Next**, Resource Manager displays the schema-driven configuration form.
 
@@ -8,13 +8,13 @@ Select your compartment, region, Ubuntu version, GPU shape, node count and deplo
 
 Use Terraform **1.5.x** in Resource Manager and retain `InstancePrincipal` authentication. The deploying identity must already have OCI permissions for the selected resources. On Review, clear **Run apply** to create the stack first, then run Plan and review before Apply. Clicking the button alone does not provision infrastructure.
 
-The stack disables and removes OKE-managed GPU device-plugin, GPU Operator and related GPU add-ons. On an existing cluster this affects other GPU workers, so use a dedicated certification cluster. GPU cloud-init installs Oracle's Ubuntu node package and configures NVIDIA's signed APT repository before `oke bootstrap`. Driver compatibility and GPU Operator certification require separate validation.
+The stack disables and removes only the OKE-managed NVIDIA GPU Plugin (`NvidiaGpuPlugin`). Other add-ons retain their existing or OKE-default settings. On an existing cluster this affects other GPU workers, so use a dedicated certification cluster. GPU cloud-init installs Oracle's Ubuntu node package and configures NVIDIA's signed APT repository before `oke bootstrap`. Driver compatibility and GPU Operator certification require separate validation.
 
 New infrastructure includes an Enhanced OKE cluster with a public API endpoint. By default, a clean Ubuntu custom image is captured from a CPU builder VM; its stopped VM and boot volume are retained. GPU workers use private addresses. An existing custom image can also be selected.
 
 No Terraform state, credentials, customer-specific variables, or live test records are included in this deployment package. Keep deployed resources and state after testing; cleanup is a separate explicit operation.
 
-The node shape is required. Select one or more availability domains in the multi-select dropdown, like fault domains. Custom node labels are optional and their editor is disabled by default. The automatic image builder uses VM.Standard.E4.Flex, 1 OCPU and 8 GB RAM in the first selected worker AD, without customer configuration fields.
+The node shape is required. Under **GPU node pool**, select one or more **GPU availability domains** using the required multi-select dropdown. **GPU fault domains** appears immediately below it. Custom node labels are optional and their editor is disabled by default. The automatic image builder uses VM.Standard.E4.Flex, 1 OCPU and 8 GB RAM in the first selected worker AD, without customer configuration fields.
 
 For existing networking, choose Network compartment, VCN, and subnets in that order. Use regional worker subnets for multiple ADs. Resource discovery uses the current Console region.
 
@@ -42,6 +42,10 @@ The Deploy button no longer forces Ashburn. Region defaults to the current Conso
 
 Upgrading from v1.0.4: replace `generate_ssh_key` / `generate_cpu_ssh_key` with `ssh_key_source = "generate"` or `"existing"`, and use `ssh_public_key` for both pools. To retain an existing generated worker key, select `generate`. Separate CPU-key inputs and `cpu_ssh_access_cidrs` were removed; CPU workers now share the worker key. Review Plan before Apply because changing a node pool SSH key can replace nodes.
 
-Release v1.0.6 fixes region prepopulation: both the schema expression default and the Terraform region default are omitted so ORM fills the current Console region. Local Terraform users must set `region` explicitly, as shown in the example inputs.
+Release v1.0.7 fixes region prepopulation: both the schema expression default and the Terraform region default are omitted so ORM fills the current Console region. Local Terraform users must set `region` explicitly, as shown in the example inputs.
 
 Availability-domain choices use a persistent enum multi-select (`AD-1`, `AD-2`, `AD-3`) because ORM's dynamic AD control drops array selections on save. Terraform resolves these to full tenancy-specific names in the deployment region. In single-AD regions, choose only `AD-1`; Plan rejects unavailable choices. CLI input also accepts full AD names.
+
+Release v1.0.7 aligns freeform-tag key/value fields. Turn off **Add resource tags** to use no freeform tags. The GPU AD selector is near the top of **GPU node pool**.
+
+The add-on guard now targets only `NvidiaGpuPlugin`; it no longer removes the GPU Operator, health/metrics, or Node Feature Discovery add-ons. It does not reinstall add-ons removed by earlier releases. Existing ORM stacks retain their uploaded configuration until updated with the new ZIP.

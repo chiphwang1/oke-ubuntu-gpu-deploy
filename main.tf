@@ -1,4 +1,5 @@
 locals {
+  freeform_tags                 = var.add_freeform_tags ? var.freeform_tags : {}
   selected_availability_domains = length(var.availability_domains) > 0 ? var.availability_domains : (var.availability_domain != "" ? [var.availability_domain] : [])
   regional_availability_domains = { for ad in data.oci_identity_availability_domains.workers.availability_domains : try(regex("AD-[0-9]+$", ad.name), ad.name) => ad.name }
   worker_availability_domains   = [for ad in local.selected_availability_domains : lookup(local.regional_availability_domains, ad, ad)]
@@ -116,7 +117,7 @@ resource "oci_containerengine_cluster" "this" {
   kubernetes_version = var.kubernetes_version
   type               = "ENHANCED_CLUSTER"
   vcn_id             = local.vcn_id
-  freeform_tags      = var.freeform_tags
+  freeform_tags      = local.freeform_tags
   cluster_pod_network_options {
     cni_type = var.cni_type
   }
@@ -133,12 +134,6 @@ resource "oci_containerengine_cluster" "this" {
       services_cidr = var.services_cidr
 
     }
-    add_ons {
-      is_kubernetes_dashboard_enabled = false
-      is_tiller_enabled               = false
-
-    }
-
   }
   depends_on = [terraform_data.validate, terraform_data.reused_subnet_access]
 }
@@ -149,7 +144,7 @@ resource "oci_containerengine_node_pool" "ubuntu" {
   kubernetes_version = var.kubernetes_version
   node_shape         = var.node_shape
   ssh_public_key     = local.worker_ssh_public_key == "" ? null : local.worker_ssh_public_key
-  freeform_tags      = var.freeform_tags
+  freeform_tags      = local.freeform_tags
   node_metadata = {
     user_data                      = base64encode(local.gpu_cloud_init)
     areLegacyImdsEndpointsDisabled = "true"
@@ -197,8 +192,8 @@ resource "oci_containerengine_node_pool" "ubuntu" {
   }
   depends_on = [terraform_data.validate, terraform_data.validate_image, terraform_data.disable_gpu_before_nodes, terraform_data.reused_subnet_access]
 }
-# No GPU add-on is installed by this stack. These guards remove managed add-ons
-# that OKE may already have installed. Never use a fake "enabled=false" argument.
+# These guards remove only NvidiaGpuPlugin if OKE installed it.
+# All other managed add-ons keep their existing or OKE-default settings.
 resource "terraform_data" "disable_gpu_before_nodes" {
   triggers_replace = [local.cluster_id, filesha256("${path.module}/scripts/gpu_addons.py")]
   provisioner "local-exec" {

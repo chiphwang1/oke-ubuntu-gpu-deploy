@@ -253,6 +253,12 @@ variable "builder_memory_gbs" {
   default     = 8
 }
 
+variable "add_freeform_tags" {
+  type        = bool
+  description = "Apply the configured freeform tags to resources. Disable to use no freeform tags."
+  default     = true
+}
+
 variable "freeform_tags" {
   type        = map(string)
   description = "OCI freeform tags on resources created by this stack."

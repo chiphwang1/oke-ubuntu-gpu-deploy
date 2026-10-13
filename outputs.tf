@@ -8,7 +8,7 @@ output "kubeconfig_command" {
   value = "oci ce cluster create-kubeconfig --cluster-id ${local.cluster_id} --region ${var.region} --token-version 2.0.0 --kube-endpoint ${local.create_cluster && var.public_api_endpoint ? "PUBLIC_ENDPOINT" : "PRIVATE_ENDPOINT"} --file ./kubeconfig"
 }
 output "gpu_addon_policy" {
-  value      = "OKE GPU Plugin, GPU Operator, GPU health/metrics and Node Feature Discovery add-ons removed and verified at apply time. NVIDIA installs its certification operator separately."
+  value      = "Only the OKE NvidiaGpuPlugin device-plugin add-on is removed and verified at apply time. Other add-ons retain their existing or OKE-default settings."
   depends_on = [terraform_data.verify_gpu_disabled]
 }
 

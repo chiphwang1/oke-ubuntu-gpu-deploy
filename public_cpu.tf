@@ -77,7 +77,7 @@ resource "oci_core_subnet" "public_cpu" {
   prohibit_public_ip_on_vnic = false
   route_table_id             = oci_core_route_table.public_cpu[0].id
   security_list_ids          = [oci_core_security_list.public_cpu[0].id, oci_core_security_list.private_access.id]
-  freeform_tags              = var.freeform_tags
+  freeform_tags              = local.freeform_tags
 }
 resource "oci_core_network_security_group" "cpu_endpoint" {
   count          = var.create_public_cpu_pool ? 1 : 0
@@ -107,7 +107,7 @@ resource "oci_containerengine_node_pool" "public_cpu" {
   kubernetes_version = var.kubernetes_version
   node_shape         = var.cpu_node_shape
   ssh_public_key     = local.worker_ssh_public_key
-  freeform_tags      = var.freeform_tags
+  freeform_tags      = local.freeform_tags
   node_metadata = {
     user_data                      = base64encode(local.cloud_init)
     areLegacyImdsEndpointsDisabled = "true"

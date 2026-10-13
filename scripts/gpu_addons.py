@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Remove OKE-managed GPU components only; fail on API/auth/verification errors."""
+"""Remove only the OKE-managed NVIDIA GPU device plugin; preserve all other add-ons."""
 import json
 import os
 import subprocess
@@ -68,8 +68,9 @@ def ensure_orm_sdk(script_path=None):
 
 
 def is_gpu_addon(name):
-    normalized = "".join(c for c in name.lower() if c.isalnum())
-    return any(word in normalized for word in ("gpu", "nvidia", "dcgm", "nodefeaturediscovery"))
+    # Match the OCI add-on identifier exactly; do not remove operators, metrics,
+    # health monitoring, discovery, or core cluster add-ons.
+    return name == "NvidiaGpuPlugin"
 
 
 def cli(*args):
@@ -105,8 +106,8 @@ def main():
                 break
             time.sleep(5)
     if found:
-        raise RuntimeError("GPU add-ons remain: " + ", ".join(a["name"] for a in found))
-    print("PASS: OKE GPU plugin and operator (and related GPU add-ons) are absent.")
+        raise RuntimeError("NVIDIA GPU device plugin remains: " + ", ".join(a["name"] for a in found))
+    print("PASS: OKE NvidiaGpuPlugin is absent; other add-ons are unmanaged by this guard.")
 
 
 if __name__ == "__main__":

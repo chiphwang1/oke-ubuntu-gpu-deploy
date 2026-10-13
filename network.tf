@@ -8,21 +8,21 @@ resource "oci_core_vcn" "this" {
   cidr_blocks    = [var.vcn_cidr]
   display_name   = "${var.cluster_name}-vcn"
   dns_label      = "okegpu"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
 }
 resource "oci_core_nat_gateway" "this" {
   count          = local.create_network ? 1 : 0
   compartment_id = var.compartment_ocid
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-nat"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
 }
 resource "oci_core_internet_gateway" "this" {
   count          = local.create_network && (var.public_api_endpoint || var.create_public_cpu_pool) ? 1 : 0
   compartment_id = var.compartment_ocid
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-igw"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
 }
 data "oci_core_services" "all" {
   count = local.create_network ? 1 : 0
@@ -40,7 +40,7 @@ resource "oci_core_service_gateway" "this" {
   services {
     service_id = data.oci_core_services.all[0].services[0].id
   }
-  freeform_tags = var.freeform_tags
+  freeform_tags = local.freeform_tags
 }
 resource "oci_core_route_table" "private" {
   count          = local.create_network ? 1 : 0
@@ -154,7 +154,7 @@ resource "oci_core_subnet" "this" {
   prohibit_public_ip_on_vnic = !(each.key == "endpoint" && var.public_api_endpoint)
   route_table_id             = each.key == "endpoint" && var.public_api_endpoint ? oci_core_route_table.public[0].id : oci_core_route_table.private[0].id
   security_list_ids          = [each.key == "endpoint" ? oci_core_security_list.endpoint[0].id : (contains(["workers", "pods"], each.key) ? oci_core_security_list.workers[0].id : oci_core_security_list.lb[0].id), oci_core_security_list.private_access.id]
-  freeform_tags              = var.freeform_tags
+  freeform_tags              = local.freeform_tags
 }
 
 # Allow SSH from any IPv4 subnet of the selected VCN, including reused VCNs.
@@ -169,7 +169,7 @@ resource "oci_core_network_security_group" "worker_ssh" {
   compartment_id = var.compartment_ocid
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-worker-ssh"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
 }
 resource "oci_core_network_security_group_security_rule" "worker_ssh" {
   for_each                  = local.worker_ssh_source_cidrs
@@ -194,7 +194,7 @@ resource "oci_core_network_security_group" "api_access" {
   compartment_id = var.compartment_ocid
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-api-access"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
 }
 resource "oci_core_network_security_group_security_rule" "api_access" {
   count                     = local.create_cluster ? 1 : 0
@@ -218,7 +218,7 @@ resource "oci_core_security_list" "private_access" {
   compartment_id = var.compartment_ocid
   vcn_id         = local.vcn_id
   display_name   = "${var.cluster_name}-allow-10-8"
-  freeform_tags  = var.freeform_tags
+  freeform_tags  = local.freeform_tags
   ingress_security_rules {
     protocol    = "all"
     source      = "10.0.0.0/8"
